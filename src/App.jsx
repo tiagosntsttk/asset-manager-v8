@@ -236,6 +236,156 @@ function Dots({ color="#0e0e0f" }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// ── CREDIBILIDADE & METODOLOGIA ───────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Calcula confiança dos dados por concorrente ────────────────────────────────
+// Responde à crítica "números decorativos": o badge mostra ao leitor se os scores
+// vêm de dados reais inseridos ou de estimativa da IA com base em sinais públicos.
+function calcDataConfidence(comp) {
+  const fields = [
+    { key:"siteData",          weight:2,   label:"Site/Produtos" },
+    { key:"adsData",           weight:2,   label:"Anúncios" },
+    { key:"reviewsData",       weight:1.5, label:"Reviews" },
+    { key:"socialData",        weight:1.5, label:"Social" },
+    { key:"predictedChannels", weight:1,   label:"Canais" },
+    { key:"predictedAudience", weight:1,   label:"Público" },
+  ];
+  let filled = 0, total = 0;
+  const sources = [];
+  fields.forEach(f => {
+    total += f.weight;
+    if (comp[f.key] && comp[f.key].trim().length > 30) {
+      filled += f.weight;
+      sources.push(f.label);
+    }
+  });
+  const pct = total > 0 ? filled / total : 0;
+  if (pct >= 0.7) return { level:"alta",  label:"Dados verificados", color:"#c8f060", icon:"✦", sources };
+  if (pct >= 0.35) return { level:"media", label:"Dados parciais",    color:"#f0a060", icon:"◈", sources };
+  return              { level:"baixa", label:"Estimativa IA",      color:"#f08060", icon:"◇", sources };
+}
+
+function DataConfidenceBadge({ comp }) {
+  const conf = calcDataConfidence(comp);
+  return (
+    <span
+      title={`Confiança: ${conf.label}${conf.sources.length ? " — fontes: " + conf.sources.join(", ") : " — nenhum dado manual fornecido"}`}
+      style={{ background:"rgba(255,255,255,0.04)", border:`0.5px solid rgba(255,255,255,0.1)`,
+        borderRadius:4, padding:"2px 8px", fontSize:10, fontFamily:"'DM Mono',monospace",
+        color:conf.color, letterSpacing:"0.05em", cursor:"default" }}>
+      {conf.icon} {conf.label}
+    </span>
+  );
+}
+
+// ── Painel de metodologia colapsível ──────────────────────────────────────────
+// Transforma "números decorativos" em números com contexto. Mostra ao cliente
+// exatamente COMO cada score é derivado — aumentando percepção de valor e honestidade.
+function MetodologiaSection({ compsData = [] }) {
+  const [open, setOpen] = useState(false);
+  const hasAdsData     = compsData.some(c => c.adsData?.trim().length > 10);
+  const hasReviewsData = compsData.some(c => c.reviewsData?.trim().length > 10);
+  const hasSocialData  = compsData.some(c => c.socialData?.trim().length > 10);
+
+  const scoreItems = [
+    ["Força de marca",       "Reconhecimento estimado: presença orgânica, menções públicas, histórico da marca, domínio de keyword de marca vs concorrentes no nicho."],
+    ["Agressividade em ads", "Volume de mídia paga: sinais do Meta Ads Library, Google Shopping, densidade de criativos detectados, frequência de promoções e ofertas."],
+    ["Autoridade social",    "Presença em redes sociais: seguidores estimados, frequência de posts, engajamento aparente, uso de influencers e UGC detectado."],
+    ["Percepção de preço",   "Posicionamento RELATIVO no nicho: 0 = mais barato do mercado, 100 = mais caro. Score alto ≠ qualidade alta — indica ticket acima da média."],
+    ["Qualidade UX/site",    "Indicadores de conversão: clareza de CTA, mobile-first, velocidade aparente, copy de persuasão, checkout simplificado, proposta de valor clara."],
+    ["Velocidade crescimento","Tendência de expansão: novos produtos, canais, parcerias, aumento de presença digital e/ou física detectados no período recente."],
+    ["Diversif. de canais",  "Variedade de canais de aquisição: Meta + Google + TikTok + SEO + Email + Marketplace + Influencer. Mais canais = menos dependência de um único."],
+    ["Retenção de clientes", "Mecanismos de recorrência: programa de fidelidade, email/CRM, clube VIP, assinatura, remarketing e NPS estimado via reviews detectados."],
+  ];
+
+  return (
+    <div className="print-card" style={{ ...S.card, marginBottom:14, borderColor:"rgba(255,255,255,0.06)" }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{ background:"none", border:"none", cursor:"pointer", width:"100%", textAlign:"left",
+          display:"flex", justifyContent:"space-between", alignItems:"center", padding:0 }}>
+        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#4a4845", letterSpacing:"0.1em" }}>
+          🔬 METODOLOGIA & TRANSPARÊNCIA DE DADOS
+        </div>
+        <span style={{ fontSize:11, color:"#3a3835" }}>{open ? "▲ fechar" : "▼ ver como os scores são calculados"}</span>
+      </button>
+
+      {open && (
+        <div style={{ marginTop:16, display:"flex", flexDirection:"column", gap:14, animation:"fadein 0.25s ease" }}>
+
+          {/* Aviso de estimativa */}
+          <div style={{ fontSize:12, color:"#c8a060", lineHeight:1.75, padding:"10px 14px",
+            background:"rgba(240,160,96,0.06)", borderRadius:6, borderLeft:"2px solid rgba(240,160,96,0.35)" }}>
+            <strong>Aviso:</strong> Os scores, percentuais e rankings são <strong>estimativas baseadas em sinais públicos</strong> analisados por IA no momento da geração. Não representam dados auditados ou métricas extraídas de plataformas de analytics. Recomendamos validação humana dos pontos críticos antes de decisões de investimento significativas.
+          </div>
+
+          {/* Tabela de scores */}
+          <div>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#c8f060", marginBottom:10, letterSpacing:"0.08em" }}>
+              DEFINIÇÃO DE CADA SCORE (ESCALA 0–100, POSIÇÃO RELATIVA NO NICHO)
+            </div>
+            {scoreItems.map(([label, desc], i) => (
+              <div key={i} style={{ display:"flex", gap:12, padding:"8px 10px", alignItems:"flex-start",
+                background: i%2===0 ? "rgba(255,255,255,0.02)" : "transparent", borderRadius:4, marginBottom:2 }}>
+                <div style={{ fontSize:11.5, fontWeight:500, color:"#b8b0a8", minWidth:165, flexShrink:0 }}>{label}</div>
+                <div style={{ fontSize:11, color:"#5a5855", lineHeight:1.65 }}>{desc}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Termômetro */}
+          <div>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#60d4f0", marginBottom:8, letterSpacing:"0.08em" }}>
+              FÓRMULA DO TERMÔMETRO COMPETITIVO
+            </div>
+            <div style={{ fontSize:11.5, color:"#5a5855", lineHeight:1.75, padding:"10px 14px",
+              background:"rgba(96,212,240,0.04)", borderRadius:6, borderLeft:"2px solid rgba(96,212,240,0.2)" }}>
+              Score = média ponderada dos 8 scores de cada concorrente × peso do nível de ameaça<br/>
+              (ameaça alto = ×1.3 | médio = ×1.0 | baixo = ×0.7)<br/>
+              Calculado no frontend a partir dos dados da IA — não é um número arbitrário.<br/>
+              <strong style={{ color:"#60d4f0" }}>Escala:</strong> &lt;35 = Baixo · 35–54 = Moderado · 55–74 = Alto · ≥75 = Crítico
+            </div>
+          </div>
+
+          {/* Share of Voice */}
+          <div>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#d4a0f0", marginBottom:8, letterSpacing:"0.08em" }}>
+              SHARE OF VOICE — COMO É ESTIMADO
+            </div>
+            <div style={{ fontSize:11.5, color:"#5a5855", lineHeight:1.65, padding:"10px 14px",
+              background:"rgba(212,160,240,0.04)", borderRadius:6, borderLeft:"2px solid rgba(212,160,240,0.2)" }}>
+              Estimativa de visibilidade relativa no mercado baseada em: presença orgânica, volume de ads detectado, autoridade social e histórico da marca. <strong style={{ color:"#c8a0e8" }}>Não é dado de tráfego real</strong> — é uma heurística comparativa para benchmark de posicionamento.
+            </div>
+          </div>
+
+          {/* Fontes */}
+          <div>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#f0a060", marginBottom:8, letterSpacing:"0.08em" }}>
+              FONTES DE DADOS CONSULTADAS
+            </div>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+              {[
+                "Site/landing pages","Busca orgânica (Google)","Marketplaces (ML/Shopee)","Reviews públicos","Redes sociais (perfis)","Conhecimento base Claude AI",
+              ].map((src, i) => (
+                <span key={i} style={{ fontSize:10.5, fontFamily:"'DM Mono',monospace", color:"#4a4845",
+                  background:"rgba(255,255,255,0.03)", border:"0.5px solid rgba(255,255,255,0.07)",
+                  borderRadius:4, padding:"3px 9px" }}>
+                  {src}
+                </span>
+              ))}
+              {hasAdsData && <span style={{ fontSize:10.5, fontFamily:"'DM Mono',monospace", color:"#c8f060", background:"rgba(200,240,96,0.06)", border:"0.5px solid rgba(200,240,96,0.2)", borderRadius:4, padding:"3px 9px" }}>✓ Dados de anúncios (inseridos)</span>}
+              {hasReviewsData && <span style={{ fontSize:10.5, fontFamily:"'DM Mono',monospace", color:"#c8f060", background:"rgba(200,240,96,0.06)", border:"0.5px solid rgba(200,240,96,0.2)", borderRadius:4, padding:"3px 9px" }}>✓ Reviews reais (inseridos)</span>}
+              {hasSocialData && <span style={{ fontSize:10.5, fontFamily:"'DM Mono',monospace", color:"#c8f060", background:"rgba(200,240,96,0.06)", border:"0.5px solid rgba(200,240,96,0.2)", borderRadius:4, padding:"3px 9px" }}>✓ Social/TikTok (inseridos)</span>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // ── VISUAL COMPONENTS (NOVOS) ─────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -828,6 +978,14 @@ REGRA 8 — MÍNIMO OBRIGATÓRIO DE OUTPUTS:
   • alertas_detectados: mínimo 3, máximo 5 — APENAS de concorrentes do mesmo setor
   • share_of_voice: OBRIGATÓRIO incluir ${client.name} e todos os concorrentes DO MESMO SETOR. Não inclua empresas de outros setores. Os percentuais PODEM somar menos de 100% (o restante é "outros players")
 
+REGRA 10 — SCORES DEVEM REFLETIR SINAIS OBSERVÁVEIS (ANTI-NÚMEROS DECORATIVOS):
+  • Cada score deve ser calibrado por evidência REAL ou amplamente conhecida — não invente números redondos
+  • PROIBIDO: dar scores acima de 75 sem evidência forte (marca nacional dominante, alta saturação de ads, produto líder de mercado)
+  • PROIBIDO: dar scores abaixo de 30 sem evidência clara de fraqueza (sem presença digital, sem ads visíveis, produto em declínio)
+  • Para concorrentes com POUCOS DADOS disponíveis: mantenha scores entre 35–65 (zona de incerteza honesta) — NÃO extrapole
+  • Share of Voice: se o concorrente é pequeno ou regional, não atribua mais de 20–25%. Se é player nacional dominante, pode chegar a 40–50%. Seja realista.
+  • scores_justificativa: para cada concorrente, preencha o campo "score_justificativa" com 1 frase explicando o maior score e o menor score atribuídos (ex: "Autoridade social alta (80) por forte presença no Instagram com mais de 500k seguidores detectados; Diversificação de canais baixa (35) pois opera apenas via Instagram e site próprio sem marketplace")
+
 Retorne APENAS JSON válido, sem markdown, sem texto extra.
 
 {
@@ -869,6 +1027,8 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
       "velocidade_crescimento": 0,
       "diversificacao_canais":  0,
       "retencao_clientes":      0,
+
+      "score_justificativa": "1 frase: explique o score MAIS ALTO e o MAIS BAIXO atribuídos — cite o sinal observável que levou a essa avaliação. Ex: 'Autoridade social alta (80) por presença forte no Instagram; Diversificação baixa (35) pois opera apenas em 1 canal.'",
 
       "top3_forcas":   ["força específica e real 1","força 2","força 3"],
       "top3_fraquezas":["fraqueza específica e real 1","fraqueza 2","fraqueza 3"],
@@ -1384,7 +1544,10 @@ ${r.insight_prioritario}`;
             </div>
           )}
 
-          {/* ── 5. CARDS DE CONCORRENTES ──────────────────────────────────── */}
+          {/* ── 5. METODOLOGIA — colapsível, só visível na tela ───────────── */}
+          <MetodologiaSection compsData={comps}/>
+
+          {/* ── 6. CARDS DE CONCORRENTES ──────────────────────────────────── */}
           <div style={{ display:"flex", flexDirection:"column", gap:12, marginBottom:14 }}>
             {results.concorrentes?.map((c, i) => (
               <div key={i} className="print-card" style={{ ...S.card, animation:`fadein ${0.3+i*0.12}s ease` }}>
@@ -1401,6 +1564,8 @@ ${r.insight_prioritario}`;
                     </div>
                   </div>
                   <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                    {/* Badge de confiança — mostra se scores vieram de dados reais ou estimativa */}
+                    <DataConfidenceBadge comp={comps.find(cc => cc.name?.toLowerCase() === c.nome?.toLowerCase()) || {}}/>
                     {c.fora_do_setor && (
                       <span style={{ background:"rgba(240,80,80,0.12)", color:"#f05050", border:"0.5px solid rgba(240,80,80,0.35)", borderRadius:4, padding:"3px 9px", fontSize:10, fontFamily:"'DM Mono',monospace" }}>⚠ FORA DO SETOR</span>
                     )}
@@ -1417,7 +1582,7 @@ ${r.insight_prioritario}`;
                 )}
 
                 {/* 8 scores */}
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:14 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:8 }}>
                   <div>
                     <ScoreBar label="Força de marca"        value={c.forca_marca}            color="#c8f060"/>
                     <ScoreBar label="Agressividade em ads"  value={c.agressividade_ads}       color="#f0a060"/>
@@ -1431,6 +1596,14 @@ ${r.insight_prioritario}`;
                     <ScoreBar label="Retenção de clientes"  value={c.retencao_clientes}       color="#80c8f0"/>
                   </div>
                 </div>
+
+                {/* Justificativa dos scores — transparência metodológica */}
+                {c.score_justificativa && (
+                  <div style={{ marginBottom:14, padding:"7px 10px", background:"rgba(255,255,255,0.02)", borderRadius:5, borderLeft:"2px solid rgba(255,255,255,0.08)" }}>
+                    <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:"#3a3835", letterSpacing:"0.06em" }}>BASE DOS SCORES · </span>
+                    <span style={{ fontSize:11, color:"#5a5855", lineHeight:1.6 }}>{c.score_justificativa}</span>
+                  </div>
+                )}
 
                 {/* Forças / Fraquezas */}
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:14 }}>
