@@ -57,19 +57,31 @@ input:focus, textarea:focus, select:focus {
   .print-page-break { page-break-before:always }
   body              { background:#fff !important; -webkit-print-color-adjust:exact; print-color-adjust:exact }
   .print-root       { background:#fff !important; color:#111 !important }
+
+  /* ── CORREÇÃO LEGIBILIDADE PDF ──────────────────────────────────────────────
+   * Muitos elementos usam cores inline do modo escuro (rgba branco, #7a7870, etc.)
+   * que ficam invisíveis num fundo branco. Esta regra força TODO texto dentro do
+   * relatório a ser escuro, depois restaura cores específicas via classes nomeadas.
+   * Não afeta a tela — só entra em ação no @media print.
+   * ─────────────────────────────────────────────────────────────────────────── */
+  .print-root *     { color:#1a1a1a !important }
+
+  /* Restore named accent colors */
+  .print-lime       { color:#2d6600 !important }
+  .print-cyan       { color:#005060 !important }
+  .print-purple     { color:#4a2070 !important }
+  .print-orange     { color:#7a3a00 !important }
+  .print-red        { color:#7a0000 !important }
+  .print-muted      { color:#555 !important }
+  .print-label      { color:#444 !important }
+
+  /* Card backgrounds */
   .print-card       { background:#f8f8f8 !important; border:0.5px solid #ddd !important; break-inside:avoid; margin-bottom:12px !important }
   .print-bar-track  { background:#e5e5e5 !important }
-  .print-muted      { color:#555 !important }
-  .print-lime       { color:#3a7200 !important }
-  .print-cyan       { color:#006070 !important }
-  .print-purple     { color:#5a3080 !important }
-  .print-orange     { color:#8a4a00 !important }
-  .print-red        { color:#8a0000 !important }
-  .print-label      { color:#444 !important }
   .print-divider    { border-color:#ddd !important }
-  .print-alert      { background:#fffbe6 !important; border-color:#d4b000 !important; color:#555 !important }
+  .print-alert      { background:#fffbe6 !important; border-color:#d4b000 !important }
   .print-insight    { background:#f0f8e0 !important; border-color:#6a9800 !important }
-  .print-insight-text { color:#111 !important; font-weight:600 !important }
+  .print-insight-text { font-weight:600 !important }
   .print-opp        { background:#f0f8e0 !important; border-color:#6a9800 !important }
   .print-gap-row    { background:#f5f5f5 !important }
   .print-action     { background:#f5f5f5 !important }
@@ -109,6 +121,30 @@ const normName = (str = "") => {
       ? w.charAt(0).toUpperCase() + w.slice(1)
       : w.toLowerCase()
   ).join(" ");
+};
+
+// ── CORREÇÃO TERMÔMETRO: calcula score a partir dos dados reais ────────────────
+// A IA tendia a retornar sempre 80–90. Esta função usa os 8 scores reais de cada
+// concorrente ponderados pelo nível de ameaça para um resultado honesto e variável.
+const calcThermoScore = (concorrentes = []) => {
+  const valid = concorrentes.filter(c => !c.fora_do_setor);
+  if (!valid.length) return null; // sem concorrentes válidos, mantém o valor da IA
+  const weights  = { alto:1.3, medio:1.0, baixo:0.7 };
+  const metrics  = [
+    "forca_marca","agressividade_ads","autoridade_social","percepcao_preco",
+    "qualidade_ux","velocidade_crescimento","diversificacao_canais","retencao_clientes",
+  ];
+  let totalScore = 0, totalWeight = 0;
+  valid.forEach(c => {
+    const w   = weights[c.nivel_ameaca] || 1.0;
+    const avg = metrics.reduce((s, m) => s + (Number(c[m]) || 0), 0) / metrics.length;
+    totalScore  += avg * w;
+    totalWeight += w;
+  });
+  const score = Math.round(totalWeight > 0 ? totalScore / totalWeight : 50);
+  // Escala: ≥75 = crítico | ≥55 = alto | ≥35 = moderado | <35 = baixo
+  const nivel = score >= 75 ? "critico" : score >= 55 ? "alto" : score >= 35 ? "moderado" : "baixo";
+  return { score, nivel };
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -227,7 +263,7 @@ function CompetitiveThermometer({ termometro }) {
         </div>
         <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:5, flexShrink:0 }}>
           <div style={{ fontSize:34, fontWeight:300, fontFamily:"'Fraunces',serif", color:t.color, lineHeight:1 }}>{score}</div>
-          <div style={{ fontSize:9, fontFamily:"'DM Mono',monospace", color:"rgba(255,255,255,0.22)" }}>/ 100</div>
+          <div className="print-muted" style={{ fontSize:9, fontFamily:"'DM Mono',monospace", color:"rgba(255,255,255,0.22)" }}>/ 100</div>
           <div style={{ width:64, height:5, background:"rgba(255,255,255,0.07)", borderRadius:3 }}>
             <div style={{ height:"100%", width:`${score}%`, background:t.color, borderRadius:3, transition:"width 1.4s ease" }}/>
           </div>
@@ -922,6 +958,18 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
       const parsed = JSON.parse(clean);
 
       // ── Sanitização e normalização pós-parse ──────────────────────────────
+      // 0. CORREÇÃO TERMÔMETRO: recalcula score a partir dos dados reais dos
+      //    concorrentes, ignorando o valor gerado pela IA (que era sempre 80–90).
+      //    Não altera a descrição nem manipula dados — apenas usa os scores já
+      //    gerados para calcular a pressão competitiva de forma consistente.
+      if (parsed.termometro_competitivo && Array.isArray(parsed.concorrentes)) {
+        const calc = calcThermoScore(parsed.concorrentes);
+        if (calc) {
+          parsed.termometro_competitivo.score = calc.score;
+          parsed.termometro_competitivo.nivel = calc.nivel;
+        }
+      }
+
       // 1. Garantir mínimo de 5 ações
       if (!Array.isArray(parsed.top5_acoes)) parsed.top5_acoes = [];
       while (parsed.top5_acoes.length < 5) {
