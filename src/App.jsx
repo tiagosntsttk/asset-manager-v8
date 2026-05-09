@@ -965,12 +965,14 @@ Mesmo assim, continue a análise normalmente para fins de benchmark.` }],
     if (!session) { setErr("Faça login para gerar análises."); return; }
     setStep("analyzing"); setErr(null); setAnalyzing(true);
 
-    // ── AbortController + timeout de 4 minutos ────────────────────────────────
+    // ── AbortController + timeout dinâmico (baseado no nº de concorrentes) ──────
+    // 5 min base + 2 min por concorrente. Ex: 1 conc = 7 min | 3 conc = 11 min
     abortControllerRef.current = new AbortController();
-    const TIMEOUT_MS = 240_000; // 4 min
-    const timeoutId  = setTimeout(() => {
+    const TIMEOUT_MS  = Math.max(300_000, valid.length * 120_000 + 300_000);
+    const timeoutMins = Math.round(TIMEOUT_MS / 60_000);
+    const timeoutId   = setTimeout(() => {
       abortControllerRef.current?.abort();
-      setErr("⏱ Timeout: a análise demorou mais de 4 minutos. Reduza o número de concorrentes ou simplifique os dados de entrada e tente novamente.");
+      setErr(`⏱ Timeout: a análise demorou mais de ${timeoutMins} minutos. Reduza o número de concorrentes ou simplifique os dados de entrada e tente novamente.`);
       setStep("collect");
       setAnalyzing(false);
     }, TIMEOUT_MS);
@@ -1541,11 +1543,12 @@ ${r.insight_prioritario}`;
   // ══════════════════════════════════════════════════════════════════════════════
   if (step === "analyzing") {
     // Progresso visual honesto: avança com o tempo real (cap em 95% até concluir)
-    const ESTIMATED_SECS  = 90; // estimativa realista para 1 concorrente
+    // ESTIMATIVA DINÂMICA: 120s base + 90s por concorrente (ex: 3 conc ≈ 390s)
+    const ESTIMATED_SECS  = Math.max(120, valid.length * 90 + 120);
     const rawPct          = Math.min(95, Math.round((elapsed / ESTIMATED_SECS) * 100));
     const displayPct      = rawPct;
-    const isLong          = elapsed >= 60;   // mostra aviso após 1 min
-    const isVeryLong      = elapsed >= 150;  // aviso mais urgente após 2.5 min
+    const isLong          = elapsed >= ESTIMATED_SECS * 0.5;   // aviso após 50% do tempo estimado
+    const isVeryLong      = elapsed >= ESTIMATED_SECS * 0.85;  // aviso urgente após 85% do tempo estimado
 
     const fmtElapsed = elapsed < 60
       ? `${elapsed}s`
