@@ -684,6 +684,21 @@ function SentimentSection({ sentimento }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ── BACKEND CALL — Via Supabase Edge Function ─────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
+
+// BUG FIX #1: Groq retorna formato OpenAI (choices[0].message.content),
+// não formato Anthropic (content[].text). Esta função normaliza os dois.
+function extractText(data) {
+  // Formato Groq / OpenAI
+  if (data?.choices?.[0]?.message?.content) {
+    return data.choices[0].message.content;
+  }
+  // Formato Anthropic Claude (fallback)
+  if (Array.isArray(data?.content)) {
+    return data.content.filter(b => b.type === "text").map(b => b.text || "").join("");
+  }
+  return "";
+}
+
 async function callMarketIntelligence(payload, session) {
   if (!session?.access_token) throw new Error("Acesso negado: faça login para usar a inteligência de mercado.");
   const res = await fetch(`${SUPABASE_URL}/functions/v1/rapid-processor`, {
@@ -767,8 +782,11 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []); // eslint-disable-line
 
-  useEffect(() => { try { localStorage.setItem("ic_v6_client", JSON.stringify(client)); } catch (_) {} }, [client]);
+  // BUG FIX #3: load DEVE vir antes do save.
+  // Se save vem primeiro, ele grava estado vazio na montagem e o load
+  // restaura esse estado vazio em vez dos dados reais salvos.
   useEffect(() => { try { const s = localStorage.getItem("ic_v6_client"); if (s) setClient(JSON.parse(s)); } catch (_) {} }, []);
+  useEffect(() => { try { localStorage.setItem("ic_v6_client", JSON.stringify(client)); } catch (_) {} }, [client]);
 
   useEffect(() => {
     if (step === "analyzing") {
@@ -867,7 +885,7 @@ Se ${comp.name} opera em um setor DIFERENTE desse nicho, inicie sua resposta com
 ⚠️ FORA DO SETOR: [nome da empresa] opera no setor [setor real], não em [nicho do cliente]. Esta análise terá valor limitado para comparação competitiva direta.
 Mesmo assim, continue a análise normalmente para fins de benchmark.` }],
       }, session);
-      const text = data.content.filter(b => b.type === "text").map(b => b.text).join("");
+      const text = extractText(data); // BUG FIX #1: suporte a formato Groq e Anthropic
       const siteMatch    = text.match(/\*\*DADOS DO SITE\*\*([\s\S]*?)(?=\*\*CANAIS|$)/i);
       const channelMatch = text.match(/\*\*CANAIS DE AQUISIÇÃO PREVISTOS\*\*([\s\S]*?)(?=\*\*PÚBLICO|$)/i);
       const audienceMatch= text.match(/\*\*PÚBLICO-ALVO INFERIDO\*\*([\s\S]*?)$/i);
@@ -878,7 +896,7 @@ Mesmo assim, continue a análise normalmente para fins de benchmark.` }],
         siteData:          siteMatch     ? siteMatch[1].trim()     : text || "Nenhum dado retornado.",
         predictedChannels: channelMatch  ? channelMatch[1].trim()  : "",
         predictedAudience: audienceMatch ? audienceMatch[1].trim() : "",
-        foraDosSetor:      sectorWarning,
+        fora_do_setor:     sectorWarning, // BUG FIX #2: era foraDosSetor (camelCase), incompatível com o resto do código
       };
       setComps(newComps);
       setScraping(prev => ({ ...prev, [compIdx]:"done" }));
@@ -1147,8 +1165,8 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
 
 
     try {
-      const data = await callMarketIntelligence({ max_tokens: 7000, messages: [{ role:"user", content:prompt }] }, session);
-      const txt    = data.content.filter(b => b.type === "text").map(b => b.text || "").join("");
+      const data = await callMarketIntelligence({ max_tokens: 4096, messages: [{ role:"user", content:prompt }] }, session); // BUG FIX #4: 7000 era alto demais para Groq free tier com prompt extenso
+      const txt    = extractText(data); // BUG FIX #1: suporte a formato Groq e Anthropic
       const clean  = txt.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(clean);
 
