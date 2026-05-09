@@ -699,6 +699,40 @@ function extractText(data) {
   return "";
 }
 
+// BUG FIX #5: extrator robusto de JSON — tolera preambles e postambles do modelo.
+// O NVIDIA/Groq às vezes retorna "Aqui está o JSON:" antes do { ou texto depois do }.
+// JSON.parse("Aqui está {...}") → SyntaxError: Unexpected token 'A'
+// Esta função localiza o primeiro { e último } e extrai apenas o JSON.
+function robustParseJSON(raw) {
+  if (!raw) throw new Error("Resposta vazia da IA.");
+
+  // 1. Remove blocos de markdown ```json ... ```
+  let txt = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+
+  // 2. Localiza o primeiro { e o último } — descarta qualquer texto antes/depois
+  const start = txt.indexOf("{");
+  const end   = txt.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) {
+    throw new Error(`A IA não retornou JSON válido. Resposta recebida: "${txt.slice(0, 120)}..."`);
+  }
+  const jsonStr = txt.slice(start, end + 1);
+
+  // 3. Tenta parse direto
+  try {
+    return JSON.parse(jsonStr);
+  } catch (_) {}
+
+  // 4. Fallback: remove vírgulas antes de } ou ] (JSON trailing comma — erro comum de LLMs)
+  const cleaned = jsonStr
+    .replace(/,\s*([}\]])/g, "$1")   // trailing commas
+    .replace(/[\u0000-\u001F\u007F]/g, " "); // caracteres de controle
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    throw new Error(`JSON inválido mesmo após limpeza: ${e.message}. Trecho: "${jsonStr.slice(0, 200)}"`);
+  }
+}
+
 async function callMarketIntelligence(payload, session, signal = null) {
   if (!session?.access_token) throw new Error("Acesso negado: faça login para usar a inteligência de mercado.");
   const fetchOpts = {
@@ -1192,9 +1226,8 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
       } finally {
         clearTimeout(timeoutId);
       }
-      const txt    = extractText(data); // BUG FIX #1: suporte a formato Groq e Anthropic
-      const clean  = txt.replace(/```json|```/g, "").trim();
-      const parsed = JSON.parse(clean);
+      const txt    = extractText(data); // normaliza formato Groq/Anthropic
+      const parsed = robustParseJSON(txt); // BUG FIX #5: tolerante a preambles do modelo
 
       // ── Sanitização e normalização pós-parse ──────────────────────────────
       // 0. CORREÇÃO TERMÔMETRO: recalcula score a partir dos dados reais dos
