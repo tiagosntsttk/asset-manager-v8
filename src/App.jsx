@@ -840,6 +840,7 @@ export default function App() {
     setScraping(prev => ({ ...prev, [compIdx]:"loading" })); setErr(null);
     try {
       const data = await callMarketIntelligence({
+        provider: "groq",   // ← Groq: rápido para scraping (~2s)
         max_tokens: 1800,
         messages: [{ role:"user", content:
 `Você é um analista de inteligência competitiva. Pesquise e analise o concorrente abaixo com foco em como ele se DIFERENCIA do cliente que está fazendo a análise.
@@ -1165,7 +1166,11 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
 
 
     try {
-      const data = await callMarketIntelligence({ max_tokens: 4096, messages: [{ role:"user", content:prompt }] }, session); // BUG FIX #4: 7000 era alto demais para Groq free tier com prompt extenso
+      const data = await callMarketIntelligence({
+        provider: "nvidia", // ← NVIDIA NIM: qualidade para análise principal (~30-60s)
+        max_tokens: 4096,
+        messages: [{ role:"user", content:prompt }]
+      }, session);
       const txt    = extractText(data); // BUG FIX #1: suporte a formato Groq e Anthropic
       const clean  = txt.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(clean);
@@ -1486,6 +1491,12 @@ ${r.insight_prioritario}`;
         </div>
         <div style={{ marginTop:24, textAlign:"center", fontFamily:"'DM Mono',monospace", fontSize:10, color:"#3a3835", animation:"shimmer 2s infinite" }}>
           análise profunda: share of voice · battlecards · SWOT · matriz de prioridades
+        </div>
+        <div style={{ marginTop:10, textAlign:"center", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:"#2a2825", letterSpacing:"0.1em" }}>POWERED BY</span>
+          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:"rgba(200,240,96,0.4)", letterSpacing:"0.1em" }}>NVIDIA NIM</span>
+          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:"#2a2825" }}>·</span>
+          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:"rgba(96,212,240,0.35)", letterSpacing:"0.1em" }}>GROQ (scraping)</span>
         </div>
       </div>
     </div>
@@ -2004,6 +2015,9 @@ ${r.insight_prioritario}`;
                   {isDone && c.predictedAudience && <span style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"rgba(212,160,240,0.55)" }}>+ público ✓</span>}
                   {isDone && c.fora_do_setor && <span style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#f05050", background:"rgba(240,80,80,0.1)", border:"0.5px solid rgba(240,80,80,0.3)", borderRadius:4, padding:"2px 7px" }}>⚠ FORA DO SETOR</span>}{/* FIX: era c.foraDosSetor */}
                   {!c.url && <span style={{ fontSize:11, color:"#3a3835" }}>Informe a URL para habilitar</span>}
+                  {c.url && !isDone && !isLoading && !isError && (
+                    <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:"rgba(96,212,240,0.3)", letterSpacing:"0.08em" }}>via GROQ</span>
+                  )}
                 </div>
                 {isError && err && <div style={{ marginTop:8, fontSize:11.5, color:"#f05050", padding:"8px 10px", background:"rgba(240,80,80,0.06)", borderRadius:6, border:"0.5px solid rgba(240,80,80,0.18)", fontFamily:"'DM Mono',monospace" }}>{err}</div>}
               </div>
