@@ -699,13 +699,16 @@ function extractText(data) {
   return "";
 }
 
-async function callMarketIntelligence(payload, session) {
+async function callMarketIntelligence(payload, session, signal = null) {
   if (!session?.access_token) throw new Error("Acesso negado: faça login para usar a inteligência de mercado.");
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/rapid-processor`, {
+  const fetchOpts = {
     method: "POST",
     headers: { "Content-Type":"application/json", "apikey":SUPABASE_ANON_KEY, "Authorization":`Bearer ${session.access_token}` },
     body: JSON.stringify(payload),
-  });
+  };
+  // BUG FIX #3: passa o AbortSignal para poder cancelar a requisição por timeout
+  if (signal) fetchOpts.signal = signal;
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/rapid-processor`, fetchOpts);
   if (res.status === 401) throw new Error("Sessão expirada. Faça login novamente.");
   if (res.status === 429) throw new Error("Limite de uso atingido. Tente novamente em instantes.");
   const data = await res.json();
@@ -745,6 +748,8 @@ export default function App() {
   const [savedAnalyses, setSavedAnalyses] = useState([]);
   const [showSaved, setShowSaved]   = useState(false);
   const loadingTimerRef = useRef(null);
+  // BUG FIX #4: ref para poder cancelar fetch por timeout
+  const abortControllerRef = useRef(null);
 
   const buildActiveUser = u => ({
     id: u.id, email: u.email,
@@ -1166,11 +1171,27 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
 
 
     try {
-      const data = await callMarketIntelligence({
-        provider: "nvidia", // ← NVIDIA NIM: qualidade para análise principal (~30-60s)
-        max_tokens: 4096,
-        messages: [{ role:"user", content:prompt }]
-      }, session);
+      // BUG FIX #4: timeout dinâmico no cliente + AbortController
+      // NVIDIA nemotron-49b leva 60-120s para 3500 tokens — 180s de margem segura
+      abortControllerRef.current = new AbortController();
+      const TIMEOUT_MS = 180_000; // 3 min (Edge Function tem 120s interno + overhead de rede)
+      const timeoutId  = setTimeout(() => {
+        abortControllerRef.current?.abort();
+        setErr("⏱ Timeout: a análise demorou mais de 3 minutos. Tente novamente ou reduza os dados de entrada.");
+        setStep("collect");
+        setAnalyzing(false);
+      }, TIMEOUT_MS);
+
+      let data;
+      try {
+        data = await callMarketIntelligence({
+          provider: "nvidia", // ← NVIDIA NIM: qualidade para análise principal
+          max_tokens: 3500,   // BUG FIX: era 4096 — reduzido para caber no limite NVIDIA free tier
+          messages: [{ role:"user", content:prompt }]
+        }, session, abortControllerRef.current.signal);
+      } finally {
+        clearTimeout(timeoutId);
+      }
       const txt    = extractText(data); // BUG FIX #1: suporte a formato Groq e Anthropic
       const clean  = txt.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(clean);
