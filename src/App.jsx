@@ -225,7 +225,7 @@ function Steps({ current }) {
   );
 }
 
-function Dots({ color="#0e0e0f" }) {
+function Dots({ color="#c8f060" }) {  {/* FIX: era #0e0e0f (fundo) — dots eram invisíveis */}
   return (
     <span style={{ display:"inline-flex", gap:4, alignItems:"center" }}>
       {[0,1,2].map(j => (
@@ -1970,15 +1970,39 @@ ${r.insight_prioritario}`;
                   <div><label style={S.label}>URL do site</label><input style={S.input} placeholder="https://..." value={c.url} onChange={e => upd(i, "url", e.target.value)}/></div>
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-                  <button style={{ ...S.ghost, padding:"7px 14px", fontSize:12, cursor:c.url && !isLoading ? "pointer" : "default", opacity:c.url && !isLoading ? 1 : 0.4, borderColor:isDone ? "rgba(200,240,96,0.3)" : isError ? "rgba(240,80,80,0.3)" : undefined, color:isDone ? "#c8f060" : isError ? "#f05050" : undefined, transition:"all 0.3s" }}
-                    onClick={() => autoScrape(i)} disabled={!c.url || isLoading}>
-                    {isLoading && <span style={{ marginRight:6 }}><Dots/></span>}
-                    {isLoading ? "Coletando dados + canais + público..." : isDone ? "✓ Dados + Inteligência de canal coletados" : isError ? "⚠ Erro — tentar novamente" : "🔍 Auto-coletar + Analisar canais"}
+                  {/* FIX: opacity era 0.4 no loading — texto ficava invisível no fundo escuro.
+                      Agora mantém 1 e troca aparência via border/color para comunicar estado. */}
+                  <button
+                    style={{
+                      ...S.ghost,
+                      padding:"7px 14px",
+                      fontSize:12,
+                      cursor: c.url && !isLoading ? "pointer" : "default",
+                      opacity: c.url ? 1 : 0.4,
+                      borderColor: isLoading ? "rgba(200,240,96,0.45)"
+                                 : isDone    ? "rgba(200,240,96,0.3)"
+                                 : isError   ? "rgba(240,80,80,0.3)"
+                                 : undefined,
+                      color: isLoading ? "#c8f060"
+                           : isDone    ? "#c8f060"
+                           : isError   ? "#f05050"
+                           : undefined,
+                      background: isLoading ? "rgba(200,240,96,0.07)" : undefined,
+                      transition:"all 0.3s",
+                    }}
+                    onClick={() => autoScrape(i)}
+                    disabled={!c.url || isLoading}
+                  >
+                    {isLoading && <span style={{ marginRight:6 }}><Dots color="#c8f060"/></span>}
+                    {isLoading ? "Coletando dados + canais + público..."
+                     : isDone  ? "✓ Dados + Inteligência de canal coletados"
+                     : isError ? "⚠ Erro — tentar novamente"
+                     : "🔍 Auto-coletar + Analisar canais"}
                   </button>
                   {isDone && c.siteData         && <span style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"rgba(200,240,96,0.5)" }}>{c.siteData.length.toLocaleString()} chars</span>}
                   {isDone && c.predictedChannels && <span style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"rgba(96,212,240,0.55)" }}>+ canais ✓</span>}
                   {isDone && c.predictedAudience && <span style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"rgba(212,160,240,0.55)" }}>+ público ✓</span>}
-                  {isDone && c.foraDosSetor && <span style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#f05050", background:"rgba(240,80,80,0.1)", border:"0.5px solid rgba(240,80,80,0.3)", borderRadius:4, padding:"2px 7px" }}>⚠ FORA DO SETOR</span>}
+                  {isDone && c.fora_do_setor && <span style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#f05050", background:"rgba(240,80,80,0.1)", border:"0.5px solid rgba(240,80,80,0.3)", borderRadius:4, padding:"2px 7px" }}>⚠ FORA DO SETOR</span>}{/* FIX: era c.foraDosSetor */}
                   {!c.url && <span style={{ fontSize:11, color:"#3a3835" }}>Informe a URL para habilitar</span>}
                 </div>
                 {isError && err && <div style={{ marginTop:8, fontSize:11.5, color:"#f05050", padding:"8px 10px", background:"rgba(240,80,80,0.06)", borderRadius:6, border:"0.5px solid rgba(240,80,80,0.18)", fontFamily:"'DM Mono',monospace" }}>{err}</div>}
