@@ -734,12 +734,13 @@ function sanitizeReport(obj) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ── BACKEND CALL — Via Supabase Edge Function ─────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
-async function callMarketIntelligence(payload, session) {
+async function callMarketIntelligence(payload, session, signal) {
   if (!session?.access_token) throw new Error("Acesso negado: faça login para usar a inteligência de mercado.");
   const res = await fetch(`${SUPABASE_URL}/functions/v1/rapid-processor`, {
     method: "POST",
     headers: { "Content-Type":"application/json", "apikey":SUPABASE_ANON_KEY, "Authorization":`Bearer ${session.access_token}` },
     body: JSON.stringify(payload),
+    signal: signal ?? undefined,
   });
   if (res.status === 401) throw new Error("Sessão expirada. Faça login novamente.");
   if (res.status === 429) throw new Error("Limite de uso atingido. Tente novamente em instantes.");
@@ -779,7 +780,10 @@ export default function App() {
   const [loadingStep, setLoadingStep] = useState(0);
   const [savedAnalyses, setSavedAnalyses] = useState([]);
   const [showSaved, setShowSaved]   = useState(false);
-  const loadingTimerRef = useRef(null);
+  const [elapsed, setElapsed]       = useState(0);   // segundos desde início do analyze
+  const loadingTimerRef    = useRef(null);
+  const elapsedTimerRef    = useRef(null);
+  const abortControllerRef = useRef(null);
 
   const buildActiveUser = u => ({
     id: u.id, email: u.email,
@@ -823,11 +827,29 @@ export default function App() {
   useEffect(() => {
     if (step === "analyzing") {
       setLoadingStep(0);
+      setElapsed(0);
+
+      // ── FIX: cicla infinitamente — nunca para na última etapa ──
+      // Ao atingir o último step, volta ao 0 com redução visual de opacidade
+      // via "pass" (controlado pelo índice de volta > LOADING_STEPS.length).
       loadingTimerRef.current = setInterval(() => {
-        setLoadingStep(prev => { if (prev < LOADING_STEPS.length - 1) return prev + 1; clearInterval(loadingTimerRef.current); return prev; });
-      }, 1300);
-    } else clearInterval(loadingTimerRef.current);
-    return () => clearInterval(loadingTimerRef.current);
+        setLoadingStep(prev => (prev + 1) % LOADING_STEPS.length);
+      }, 1400);
+
+      // ── Contador de tempo decorrido (incrementa a cada segundo) ──
+      elapsedTimerRef.current = setInterval(() => {
+        setElapsed(prev => prev + 1);
+      }, 1000);
+
+    } else {
+      clearInterval(loadingTimerRef.current);
+      clearInterval(elapsedTimerRef.current);
+      setElapsed(0);
+    }
+    return () => {
+      clearInterval(loadingTimerRef.current);
+      clearInterval(elapsedTimerRef.current);
+    };
   }, [step]);
 
   const valid   = comps.filter(c => c.name.trim());
@@ -942,6 +964,16 @@ Mesmo assim, continue a análise normalmente para fins de benchmark.` }],
   const analyze = async () => {
     if (!session) { setErr("Faça login para gerar análises."); return; }
     setStep("analyzing"); setErr(null); setAnalyzing(true);
+
+    // ── AbortController + timeout de 4 minutos ────────────────────────────────
+    abortControllerRef.current = new AbortController();
+    const TIMEOUT_MS = 240_000; // 4 min
+    const timeoutId  = setTimeout(() => {
+      abortControllerRef.current?.abort();
+      setErr("⏱ Timeout: a análise demorou mais de 4 minutos. Reduza o número de concorrentes ou simplifique os dados de entrada e tente novamente.");
+      setStep("collect");
+      setAnalyzing(false);
+    }, TIMEOUT_MS);
 
     // ── PROMPT v10 — ANTI-GENÉRICO + INTELIGÊNCIA DE EVIDÊNCIA ────────────────
     const prompt = `Você é um analista sênior de inteligência competitiva de um dos maiores fundos de venture capital do Brasil.
@@ -1217,7 +1249,12 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
 
 
     try {
-      const data = await callMarketIntelligence({ max_tokens: 7000, messages: [{ role:"user", content:prompt }] }, session);
+      const data = await callMarketIntelligence(
+        { max_tokens: 7000, messages: [{ role:"user", content:prompt }] },
+        session,
+        abortControllerRef.current.signal,
+      );
+      clearTimeout(timeoutId);
       const txt    = data.content.filter(b => b.type === "text").map(b => b.text || "").join("");
       const clean  = txt.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(clean);
@@ -1321,6 +1358,8 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
       }
       setStep("results");
     } catch (e) {
+      clearTimeout(timeoutId);
+      if (e.name === "AbortError") return; // timeout já tratou o estado
       setErr("Erro: " + e.message); setStep("collect");
     } finally {
       setAnalyzing(false);
@@ -1500,42 +1539,139 @@ ${r.insight_prioritario}`;
   // ══════════════════════════════════════════════════════════════════════════════
   // ── SCREEN: ANALYZING ────────────────────────────────────────────────────────
   // ══════════════════════════════════════════════════════════════════════════════
-  if (step === "analyzing") return (
-    <div style={{ ...S.bg, display:"flex", alignItems:"center", justifyContent:"center", minHeight:"100vh" }}>
-      <style>{fonts}</style>
-      <div style={{ maxWidth:390, width:"100%", padding:"0 1.5rem", animation:"fadein 0.4s ease" }}>
-        <div style={{ textAlign:"center", marginBottom:32 }}>
-          <div style={S.eyebrow}>Processando</div>
-          <div style={{ ...S.h1, fontSize:"1.5rem" }}>Gerando inteligência<br/><em style={{ color:"#c8f060", fontStyle:"italic" }}>competitiva...</em></div>
-        </div>
-        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-          {LOADING_STEPS.map((s, i) => {
-            const status = i < loadingStep ? "done" : i === loadingStep ? "active" : "pending";
-            return (
-              <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 14px", borderRadius:8,
-                background: status==="done" ? "rgba(200,240,96,0.06)" : status==="active" ? "rgba(200,240,96,0.1)" : "rgba(255,255,255,0.02)",
-                border:`0.5px solid ${status==="done" ? "rgba(200,240,96,0.22)" : status==="active" ? "rgba(200,240,96,0.38)" : "rgba(255,255,255,0.05)"}`,
-                transition:"all 0.5s ease", animation:status==="active" ? "stepIn 0.35s ease" : "none" }}>
-                <div style={{ width:24, height:24, borderRadius:"50%", flexShrink:0,
-                  background: status==="done" ? "rgba(200,240,96,0.18)" : status==="active" ? "rgba(200,240,96,0.22)" : "rgba(255,255,255,0.04)",
-                  border:`0.5px solid ${status==="done" ? "rgba(200,240,96,0.45)" : status==="active" ? "rgba(200,240,96,0.55)" : "rgba(255,255,255,0.08)"}`,
-                  display:"flex", alignItems:"center", justifyContent:"center", fontSize:status==="done" ? 11 : 13, transition:"all 0.4s ease" }}>
-                  {status==="done" ? "✓" : status==="active" ? s.icon : "·"}
-                </div>
-                <span style={{ fontSize:13, flex:1, color:status==="done" ? "#c8f060" : status==="active" ? "#e8e6e0" : "#3a3835",
-                  fontFamily:status==="done" ? "'DM Mono',monospace" : "'DM Sans',sans-serif", transition:"all 0.5s ease" }}>{s.label}</span>
-                {status==="active" && <div style={{ display:"flex", gap:3, flexShrink:0 }}>{[0,1,2].map(j => <div key={j} style={{ width:4, height:4, borderRadius:"50%", background:"#c8f060", animation:`pulse 1s ${j*0.18}s infinite` }}/>)}</div>}
-                {status==="done" && <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:"rgba(200,240,96,0.4)", flexShrink:0 }}>ok</span>}
+  if (step === "analyzing") {
+    // Progresso visual honesto: avança com o tempo real (cap em 95% até concluir)
+    const ESTIMATED_SECS  = 90; // estimativa realista para 1 concorrente
+    const rawPct          = Math.min(95, Math.round((elapsed / ESTIMATED_SECS) * 100));
+    const displayPct      = rawPct;
+    const isLong          = elapsed >= 60;   // mostra aviso após 1 min
+    const isVeryLong      = elapsed >= 150;  // aviso mais urgente após 2.5 min
+
+    const fmtElapsed = elapsed < 60
+      ? `${elapsed}s`
+      : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
+
+    return (
+      <div style={{ ...S.bg, display:"flex", alignItems:"center", justifyContent:"center", minHeight:"100vh" }}>
+        <style>{fonts}</style>
+        <div style={{ maxWidth:420, width:"100%", padding:"0 1.5rem", animation:"fadein 0.4s ease" }}>
+
+          {/* Header */}
+          <div style={{ textAlign:"center", marginBottom:28 }}>
+            <div style={S.eyebrow}>Processando</div>
+            <div style={{ ...S.h1, fontSize:"1.5rem" }}>
+              Gerando inteligência<br/>
+              <em style={{ color:"#c8f060", fontStyle:"italic" }}>competitiva...</em>
+            </div>
+          </div>
+
+          {/* ── BARRA DE PROGRESSO REAL ── */}
+          <div style={{ marginBottom:24 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+              <span style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#4a4845", letterSpacing:"0.08em" }}>
+                PROGRESSO ESTIMADO
+              </span>
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:11, color:"#c8f060" }}>
+                  {displayPct}%
+                </span>
+                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#4a4845" }}>
+                  ⏱ {fmtElapsed}
+                </span>
               </div>
-            );
-          })}
-        </div>
-        <div style={{ marginTop:24, textAlign:"center", fontFamily:"'DM Mono',monospace", fontSize:10, color:"#3a3835", animation:"shimmer 2s infinite" }}>
-          análise profunda: share of voice · battlecards · SWOT · matriz de prioridades
+            </div>
+            {/* Track */}
+            <div style={{ height:4, background:"rgba(255,255,255,0.06)", borderRadius:2, overflow:"hidden" }}>
+              <div style={{
+                height:"100%",
+                width:`${displayPct}%`,
+                background:"linear-gradient(90deg, rgba(200,240,96,0.6), #c8f060)",
+                borderRadius:2,
+                transition:"width 1s linear",
+                boxShadow:"0 0 8px rgba(200,240,96,0.3)",
+              }}/>
+            </div>
+          </div>
+
+          {/* ── STEPS LIST — cicla infinitamente ── */}
+          <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+            {LOADING_STEPS.map((s, i) => {
+              const isActive = i === loadingStep;
+              return (
+                <div key={i} style={{
+                  display:"flex", alignItems:"center", gap:12,
+                  padding:"10px 13px", borderRadius:8,
+                  background: isActive ? "rgba(200,240,96,0.1)" : "rgba(255,255,255,0.02)",
+                  border:`0.5px solid ${isActive ? "rgba(200,240,96,0.35)" : "rgba(255,255,255,0.05)"}`,
+                  transition:"all 0.4s ease",
+                  animation: isActive ? "stepIn 0.3s ease" : "none",
+                  opacity: isActive ? 1 : 0.45,
+                }}>
+                  <div style={{
+                    width:22, height:22, borderRadius:"50%", flexShrink:0,
+                    background: isActive ? "rgba(200,240,96,0.2)" : "rgba(255,255,255,0.04)",
+                    border:`0.5px solid ${isActive ? "rgba(200,240,96,0.5)" : "rgba(255,255,255,0.07)"}`,
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    fontSize:12, transition:"all 0.4s ease",
+                  }}>
+                    {s.icon}
+                  </div>
+                  <span style={{
+                    fontSize:12.5, flex:1,
+                    color: isActive ? "#e8e6e0" : "#3a3835",
+                    fontFamily:"'DM Sans',sans-serif",
+                    transition:"color 0.4s ease",
+                  }}>{s.label}</span>
+                  {isActive && (
+                    <div style={{ display:"flex", gap:3, flexShrink:0 }}>
+                      {[0,1,2].map(j => (
+                        <div key={j} style={{ width:4, height:4, borderRadius:"50%", background:"#c8f060", animation:`pulse 1s ${j*0.18}s infinite` }}/>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ── MENSAGEM DE CONTEXTO ── */}
+          <div style={{ marginTop:20, padding:"12px 14px", borderRadius:8,
+            background: isVeryLong ? "rgba(240,160,96,0.07)" : "rgba(255,255,255,0.02)",
+            border: `0.5px solid ${isVeryLong ? "rgba(240,160,96,0.22)" : "rgba(255,255,255,0.05)"}`,
+            transition:"all 0.6s ease",
+          }}>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10.5, color: isVeryLong ? "#f0a060" : "#4a4845", lineHeight:1.7, textAlign:"center" }}>
+              {isVeryLong
+                ? `⏳ Análise complexa — ${fmtElapsed} aguardando. Cancele e tente com menos concorrentes se necessário.`
+                : isLong
+                  ? `⏱ Análise profunda em andamento (${fmtElapsed}) — análises com múltiplos concorrentes podem levar até 3 minutos.`
+                  : "análise profunda: share of voice · battlecards · SWOT · matriz de prioridades"
+              }
+            </div>
+          </div>
+
+          {/* ── BOTÃO CANCELAR (aparece após 30s) ── */}
+          {elapsed >= 30 && (
+            <div style={{ marginTop:16, textAlign:"center", animation:"fadein 0.4s ease" }}>
+              <button
+                style={{ background:"none", border:"0.5px solid rgba(240,80,80,0.25)", borderRadius:6, padding:"8px 20px",
+                  color:"rgba(240,80,80,0.6)", fontSize:12, cursor:"pointer", fontFamily:"'DM Mono',monospace",
+                  letterSpacing:"0.06em", transition:"all 0.2s" }}
+                onClick={() => {
+                  abortControllerRef.current?.abort();
+                  setErr("Análise cancelada. Você pode tentar novamente com menos concorrentes ou dados mais simples.");
+                  setStep("collect");
+                  setAnalyzing(false);
+                }}
+              >
+                × Cancelar análise
+              </button>
+            </div>
+          )}
         </div>
       </div>
-    </div>
-  );
+    );
+  }
 
   // ══════════════════════════════════════════════════════════════════════════════
   // ── SCREEN: RESULTS ──────────────────────────────────────────────────────────
