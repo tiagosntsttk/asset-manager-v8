@@ -1205,8 +1205,7 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
 
 
     try {
-      // BUG FIX #4: timeout dinâmico no cliente + AbortController
-      // Gemini 2.5 Flash leva ~10-25s para 3500 tokens — 120s é margem confortável
+      // QwQ 32B raciocina internamente antes de responder (~30-90s) — 120s de margem
       abortControllerRef.current = new AbortController();
       const TIMEOUT_MS = 120_000; // 2 min (Edge Function tem 90s interno + overhead de rede)
       const timeoutId  = setTimeout(() => {
@@ -1219,7 +1218,7 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
       let data;
       try {
         data = await callMarketIntelligence({
-          provider: "gemini", // ← Gemini 2.5 Flash: qualidade + velocidade para análise principal
+          provider: "groq-heavy", // ← QwQ 32B: modelo de raciocínio do Groq para análise competitiva
           max_tokens: 3500,
           messages: [{ role:"user", content:prompt }]
         }, session, abortControllerRef.current.signal);
