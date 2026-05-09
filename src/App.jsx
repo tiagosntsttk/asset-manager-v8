@@ -1206,12 +1206,12 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
 
     try {
       // BUG FIX #4: timeout dinâmico no cliente + AbortController
-      // NVIDIA nemotron-49b leva 60-120s para 3500 tokens — 180s de margem segura
+      // Gemini 2.5 Flash leva ~10-25s para 3500 tokens — 120s é margem confortável
       abortControllerRef.current = new AbortController();
-      const TIMEOUT_MS = 180_000; // 3 min (Edge Function tem 120s interno + overhead de rede)
+      const TIMEOUT_MS = 120_000; // 2 min (Edge Function tem 90s interno + overhead de rede)
       const timeoutId  = setTimeout(() => {
         abortControllerRef.current?.abort();
-        setErr("⏱ Timeout: a análise demorou mais de 3 minutos. Tente novamente ou reduza os dados de entrada.");
+        setErr("⏱ Timeout: a análise demorou mais de 2 minutos. Tente novamente.");
         setStep("collect");
         setAnalyzing(false);
       }, TIMEOUT_MS);
@@ -1219,8 +1219,8 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
       let data;
       try {
         data = await callMarketIntelligence({
-          provider: "nvidia", // ← NVIDIA NIM: qualidade para análise principal
-          max_tokens: 3500,   // BUG FIX: era 4096 — reduzido para caber no limite NVIDIA free tier
+          provider: "gemini", // ← Gemini 2.5 Flash: qualidade + velocidade para análise principal
+          max_tokens: 3500,
           messages: [{ role:"user", content:prompt }]
         }, session, abortControllerRef.current.signal);
       } finally {
