@@ -337,7 +337,7 @@ function MetodologiaSection({ compsData = [] }) {
           {/* Termômetro */}
           <div>
             <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#60d4f0", marginBottom:8, letterSpacing:"0.08em" }}>
-              FÓRMULA DO IPC — ÍNDICE DE PRESSÃO COMPETITIVA
+              FÓRMULA DO TERMÔMETRO COMPETITIVO
             </div>
             <div style={{ fontSize:11.5, color:"#5a5855", lineHeight:1.75, padding:"10px 14px",
               background:"rgba(96,212,240,0.04)", borderRadius:6, borderLeft:"2px solid rgba(96,212,240,0.2)" }}>
@@ -405,7 +405,7 @@ function CompetitiveThermometer({ termometro }) {
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:14 }}>
         <div style={{ flex:1 }}>
           <div className="print-label" style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:t.color, letterSpacing:"0.12em", marginBottom:7 }}>
-            {t.icon} ÍNDICE DE PRESSÃO COMPETITIVA (IPC) — NÍVEL {t.label}
+            {t.icon} TERMÔMETRO COMPETITIVO — NÍVEL {t.label}
           </div>
           <p className="print-muted" style={{ fontSize:13, color:"#ccc8c0", lineHeight:1.65, maxWidth:480 }}>
             {termometro.descricao}
@@ -464,7 +464,7 @@ function ShareOfVoiceSection({ data, clientName }) {
         </div>
       )}
       <div style={{ fontSize:10, fontFamily:"'DM Mono',monospace", color:"#3a3835", marginTop:4 }}>
-        * SOV estimado por modelo de visibilidade ponderada — não é dado de tráfego real
+        * estimativa baseada em visibilidade online, investimento em ads e autoridade orgânica detectados
       </div>
     </div>
   );
@@ -652,7 +652,7 @@ function SentimentSection({ sentimento }) {
     <div className="print-sentiment" style={{ padding:"10px 14px", background:"rgba(255,255,255,0.02)", borderRadius:8, border:"0.5px solid rgba(255,255,255,0.07)", marginTop:10 }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
         <div className="print-label" style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"rgba(200,160,240,0.65)", letterSpacing:"0.1em" }}>
-          💬 ANÁLISE DE REPUTAÇÃO E NPS INFERIDO
+          💬 SENTIMENTO DOS CLIENTES
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:6 }}>
           <span className="print-muted" style={{ fontSize:9.5, fontFamily:"'DM Mono',monospace", color:"#5a5855" }}>reputação</span>
@@ -682,65 +682,14 @@ function SentimentSection({ sentimento }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// ── [M2] SANITIZAÇÃO DE OUTPUT — Camada 2 de segurança ────────────────────────
-// Remove metadados internos e flags de debug ANTES de salvar/renderizar.
-// Execute SEMPRE após receber JSON do modelo — independente do prompt.
-// ══════════════════════════════════════════════════════════════════════════════
-const FLAG_PATTERNS = [
-  /\[FRAQUEZA POSSIVELMENTE COPIADA.*?\]/gi,
-  /\[AMEAÇA GENÉRICA DETECTADA.*?\]/gi,
-  /⚠️\s*\[.*?revise.*?\]/gi,
-  /⚠️\s*\[.*?DETECTADA.*?\]/gi,
-  /⚠️\s*\[.*?COPIADA.*?\]/gi,
-  /⚠️\s*\[.*?substitua.*?\]/gi,
-  /\[.*?revise.*?\]/gi,
-  /\[.*?verificar.*?\]/gi,
-  /\[.*?COPIADO.*?\]/gi,
-  /\[.*?a definir.*?\]/gi,
-];
-
-function sanitizeStr(v) {
-  if (typeof v !== "string") return v;
-  let s = v;
-  FLAG_PATTERNS.forEach(p => { s = s.replace(p, "").trim(); });
-  return s;
-}
-
-function sanitizeArr(arr) {
-  if (!Array.isArray(arr)) return arr;
-  return arr
-    .map(item => {
-      if (typeof item === "string") return sanitizeStr(item);
-      if (item && typeof item === "object") return sanitizeReport(item);
-      return item;
-    })
-    .filter(item => {
-      const s = JSON.stringify(item) || "";
-      return !FLAG_PATTERNS.some(p => { p.lastIndex = 0; return p.test(s); });
-    });
-}
-
-function sanitizeReport(obj) {
-  if (!obj || typeof obj !== "object") return obj;
-  const result = {};
-  for (const [key, val] of Object.entries(obj)) {
-    if (Array.isArray(val))               result[key] = sanitizeArr(val);
-    else if (val && typeof val === "object") result[key] = sanitizeReport(val);
-    else                                  result[key] = sanitizeStr(val);
-  }
-  return result;
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
 // ── BACKEND CALL — Via Supabase Edge Function ─────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
-async function callMarketIntelligence(payload, session, signal) {
+async function callMarketIntelligence(payload, session) {
   if (!session?.access_token) throw new Error("Acesso negado: faça login para usar a inteligência de mercado.");
   const res = await fetch(`${SUPABASE_URL}/functions/v1/rapid-processor`, {
     method: "POST",
     headers: { "Content-Type":"application/json", "apikey":SUPABASE_ANON_KEY, "Authorization":`Bearer ${session.access_token}` },
     body: JSON.stringify(payload),
-    signal: signal ?? undefined,
   });
   if (res.status === 401) throw new Error("Sessão expirada. Faça login novamente.");
   if (res.status === 429) throw new Error("Limite de uso atingido. Tente novamente em instantes.");
@@ -780,10 +729,7 @@ export default function App() {
   const [loadingStep, setLoadingStep] = useState(0);
   const [savedAnalyses, setSavedAnalyses] = useState([]);
   const [showSaved, setShowSaved]   = useState(false);
-  const [elapsed, setElapsed]       = useState(0);   // segundos desde início do analyze
-  const loadingTimerRef    = useRef(null);
-  const elapsedTimerRef    = useRef(null);
-  const abortControllerRef = useRef(null);
+  const loadingTimerRef = useRef(null);
 
   const buildActiveUser = u => ({
     id: u.id, email: u.email,
@@ -827,29 +773,11 @@ export default function App() {
   useEffect(() => {
     if (step === "analyzing") {
       setLoadingStep(0);
-      setElapsed(0);
-
-      // ── FIX: cicla infinitamente — nunca para na última etapa ──
-      // Ao atingir o último step, volta ao 0 com redução visual de opacidade
-      // via "pass" (controlado pelo índice de volta > LOADING_STEPS.length).
       loadingTimerRef.current = setInterval(() => {
-        setLoadingStep(prev => (prev + 1) % LOADING_STEPS.length);
-      }, 1400);
-
-      // ── Contador de tempo decorrido (incrementa a cada segundo) ──
-      elapsedTimerRef.current = setInterval(() => {
-        setElapsed(prev => prev + 1);
-      }, 1000);
-
-    } else {
-      clearInterval(loadingTimerRef.current);
-      clearInterval(elapsedTimerRef.current);
-      setElapsed(0);
-    }
-    return () => {
-      clearInterval(loadingTimerRef.current);
-      clearInterval(elapsedTimerRef.current);
-    };
+        setLoadingStep(prev => { if (prev < LOADING_STEPS.length - 1) return prev + 1; clearInterval(loadingTimerRef.current); return prev; });
+      }, 1300);
+    } else clearInterval(loadingTimerRef.current);
+    return () => clearInterval(loadingTimerRef.current);
   }, [step]);
 
   const valid   = comps.filter(c => c.name.trim());
@@ -965,18 +893,6 @@ Mesmo assim, continue a análise normalmente para fins de benchmark.` }],
     if (!session) { setErr("Faça login para gerar análises."); return; }
     setStep("analyzing"); setErr(null); setAnalyzing(true);
 
-    // ── AbortController + timeout dinâmico (baseado no nº de concorrentes) ──────
-    // 5 min base + 2 min por concorrente. Ex: 1 conc = 7 min | 3 conc = 11 min
-    abortControllerRef.current = new AbortController();
-    const TIMEOUT_MS  = Math.max(300_000, valid.length * 120_000 + 300_000);
-    const timeoutMins = Math.round(TIMEOUT_MS / 60_000);
-    const timeoutId   = setTimeout(() => {
-      abortControllerRef.current?.abort();
-      setErr(`⏱ Timeout: a análise demorou mais de ${timeoutMins} minutos. Reduza o número de concorrentes ou simplifique os dados de entrada e tente novamente.`);
-      setStep("collect");
-      setAnalyzing(false);
-    }, TIMEOUT_MS);
-
     // ── PROMPT v10 — ANTI-GENÉRICO + INTELIGÊNCIA DE EVIDÊNCIA ────────────────
     const prompt = `Você é um analista sênior de inteligência competitiva de um dos maiores fundos de venture capital do Brasil.
 Você analisa e-commerce, varejo e startups. Seus clientes pagam R$ 5.000 a R$ 30.000 por relatório.
@@ -1009,9 +925,6 @@ As frases abaixo invalidam a análise por serem genéricas ao ponto de não tere
 Se você escrevê-las, o relatório será rejeitado:
 
 PROIBIDO (use a alternativa específica ao lado):
-• "presença forte no Instagram" → use "Autoridade orgânica consolidada em Meta (~Xk seguidores, Y% engajamento)"
-• "estratégia de preços competitivos" → use "Pricing de penetração com âncora de [frete/desconto/kit/parcelamento]"
-• "aumentar presença em outros canais" → use "Diversificação de stack de aquisição para [canal específico]"
 • "alta qualidade" → cite o produto/ingrediente/material específico que justifica
 • "presença online forte" → cite canal + métrica estimada (ex: "~85k seguidores no Instagram, 4% engajamento")
 • "conteúdo de alta qualidade" → cite o formato + frequência + tipo (ex: "Reels UGC 3x/semana com depoimentos pré-treino")
@@ -1071,25 +984,9 @@ REGRA 8 — MÍNIMOS OBRIGATÓRIOS:
 REGRA 9 — VALIDAÇÃO DE SETOR:
   • Concorrente em setor diferente → fora_do_setor: true, não inclua no share_of_voice, não gere alertas de competição direta
 
-REGRA 13 — TOP 5 AÇÕES: EXATAMENTE 5, DERIVADAS DOS GAPS (OBRIGATÓRIO):
-  • Retorne EXATAMENTE 5 ações — nunca 1, 2, 3 ou 4
-  • Pelo menos 3 das 5 ações DEVEM referenciar um gap_mercado identificado acima via campo gap_source (número 1–4)
-  • NUNCA use placeholders: "Definir com o time", "A definir", "ação adicional necessária" são PROIBIDOS
-  • Se não houver 5 oportunidades naturais dos concorrentes, derive as restantes dos GAPS DE MERCADO identificados acima
-  • Cada ação cita o gap ou fraqueza que a motivou — linkagem obrigatória
-
-REGRA 14 — OUTPUT SEM METADADOS INTERNOS (CRÍTICO PARA PRODUÇÃO):
-  NUNCA inclua no JSON final:
-  • Flags de revisão como [revise], [verificar], [COPIADO], [DETECTADA]
-  • Strings entre colchetes com avisos internos
-  • Alertas de qualidade de dado para consumo interno
-  • Itens marcados como incertos com ⚠️
-  Se não houver dados suficientes para um campo:
-  • OMITA o item completamente — não inclua com flag
-  • Reduza a lista (ex: 2 fraquezas em vez de 3)
-  • NUNCA exponha incerteza ao cliente final via string de debug
-
-
+REGRA 10 — SCORES JUSTIFICÁVEIS:
+  • Acima de 75 exige evidência forte. Abaixo de 30 exige evidência de fraqueza clara.
+  • Sem dados suficientes → score entre 40–60 (zona de incerteza honesta)
 
 REGRA 11 — INTELIGÊNCIA CRIATIVA OBRIGATÓRIA (campo "inteligencia_criativa"):
   • Para cada concorrente, descreva o que eles fazem criativamente de forma OBSERVÁVEL:
@@ -1198,7 +1095,7 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
       "battlecard": {
         "quando_ganhamos":    "Cenário baseado nas FRAQUEZAS REAIS deste concorrente — cite a fraqueza específica que cria a oportunidade.",
         "quando_perdemos":    "Cenário honesto baseado nas FORÇAS REAIS — cite o que eles fazem melhor que ${client.name}.",
-        "argumento_principal":"Estrutura OBRIGATÓRIA (4 elementos em máx. 4 frases): [1. Assimetria do concorrente identificada + dado ou percentual real] + [2. Janela temporal de oportunidade em dias/semanas] + [3. Ação específica que ${client.name} pode tomar agora] + [4. Consequência concreta de não agir]. Ex de estrutura: '${compName} concentra X% do SOV em canal único — vulnerabilidade estrutural. ${client.name} tem Y dias para capturar [gap específico] via [canal], com CAC estimado Z% menor. Cada mês de atraso consolida ${compName} nesse segmento.' PROIBIDO: argumentos genéricos sem número, sem janela temporal, sem consequência."
+        "argumento_principal":"Copy de resposta específico para quando o cliente menciona este concorrente pelo nome — baseado no diferencial REAL de ${client.name}."
       }
     }
   ],
@@ -1237,26 +1134,20 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
     {
       "acao":       "Ação específica e executável — não genérica. Ex: 'Criar série de Reels UGC com clientes reais mostrando resultado em 30 dias'",
       "porque":     "Justificativa com dado concreto — cite o concorrente ou gap que gerou essa oportunidade",
-      "como_medir": "KPI específico com meta realista e número. Ex: 'Atingir 50k views em 30 dias e 200 leads via link na bio'",
+      "como_medir": "KPI específico com meta realista. Ex: 'Atingir 50k views em 30 dias e 200 leads via link na bio'",
       "urgencia":   "alta|media|baixa",
       "impacto":    "alto|medio|baixo",
       "esforco":    "alto|medio|baixo",
-      "prazo_dias": 30,
-      "gap_source": 1
+      "prazo_dias": 30
     }
   ],
 
-  "insight_prioritario": "Revele UMA assimetria competitiva que ${client.name} pode explorar e que o concorrente NÃO PODE replicar sem contradizer seu posicionamento atual. Estrutura obrigatória: 1) Nome da assimetria identificada (ex: 'Dependência de canal único'); 2) Por que o concorrente não pode replicar — custo, posicionamento ou dependência estrutural; 3) Como ${client.name} explora isso com baixo esforço e qual ação concreta; 4) Métrica de validação em 30 dias. PROIBIDO repetir o sumário executivo. PROIBIDO generalizações."
+  "insight_prioritario": "2-3 linhas específicas e acionáveis. Cite concorrentes pelo nome. Cite o movimento mais urgente. Nada genérico."
 }`;
 
 
     try {
-      const data = await callMarketIntelligence(
-        { max_tokens: 4000, messages: [{ role:"user", content:prompt }] },
-        session,
-        abortControllerRef.current.signal,
-      );
-      clearTimeout(timeoutId);
+      const data = await callMarketIntelligence({ max_tokens: 7000, messages: [{ role:"user", content:prompt }] }, session);
       const txt    = data.content.filter(b => b.type === "text").map(b => b.text || "").join("");
       const clean  = txt.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(clean);
@@ -1274,22 +1165,14 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
         }
       }
 
-      // 1. [M1] Garantir EXATAMENTE 5 ações — derivadas dos gaps, nunca placeholders
+      // 1. Garantir mínimo de 5 ações
       if (!Array.isArray(parsed.top5_acoes)) parsed.top5_acoes = [];
-      const gapsParaAcoes = Array.isArray(parsed.gaps_mercado) ? parsed.gaps_mercado : [];
       while (parsed.top5_acoes.length < 5) {
-        const idx      = parsed.top5_acoes.length;
-        const gapRaw   = gapsParaAcoes[idx % Math.max(gapsParaAcoes.length, 1)] || `Gap ${idx + 1}: oportunidade identificada na análise`;
-        const gapClean = gapRaw.replace(/^Gap \d+:\s*/i, "").trim();
         parsed.top5_acoes.push({
-          acao:       `Explorar: ${gapClean.substring(0, 120)}`,
-          porque:     `Gap de mercado identificado na análise: ${gapClean}`,
-          como_medir: "Definir KPI mensurável com o time após validação do gap — meta mínima: crescimento de 15% em 60 dias",
-          urgencia:   "media",
-          impacto:    "medio",
-          esforco:    "medio",
-          prazo_dias: 60,
-          gap_source: (idx % Math.max(gapsParaAcoes.length, 1)) + 1,
+          acao: "Definir com o time — ação adicional necessária",
+          porque: "A IA retornou menos de 5 ações. Adicione manualmente com base no contexto.",
+          como_medir: "A definir",
+          urgencia: "media", impacto: "medio", esforco: "medio", prazo_dias: 90,
         });
       }
 
@@ -1335,15 +1218,29 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
         }
       }
 
-      // 7. NORMALIZAR: garantir arrays mínimos de SWOT
-      if (!parsed.matriz_swot_cliente) parsed.matriz_swot_cliente = { forcas:[], fraquezas:[], oportunidades:[], ameacas:[] };
+      // 7. ANTI-ALUCINAÇÃO: Detectar e sinalizar ameaças genéricas no SWOT
+      const ameacasGenericas = ["mudanças nas tendências","políticas governamentais","impacto da economia","fatores econômicos","regulamentações","mudanças no mercado","preferências dos clientes"];
+      if (parsed.matriz_swot_cliente?.ameacas) {
+        parsed.matriz_swot_cliente.ameacas = parsed.matriz_swot_cliente.ameacas.map(a => {
+          const aLower = (a || "").toLowerCase();
+          const isGenerica = ameacasGenericas.some(g => aLower.includes(g));
+          return isGenerica ? `⚠️ [AMEAÇA GENÉRICA DETECTADA — substitua por concorrente específico]: ${a}` : a;
+        });
+      }
 
-      // 8. SANITIZAÇÃO: remover todos os metadados internos e flags de debug do output final
-      //    Aplica-se SEMPRE, independente de o prompt ter sido atualizado.
-      //    Garante que nenhuma string de debug chegue ao cliente.
-      if (typeof sanitizeReport === "function") {
-        const clean = sanitizeReport(parsed);
-        Object.assign(parsed, clean);
+      // 8. ANTI-ALUCINAÇÃO: Detectar fraquezas do SWOT copiadas das forças/fraquezas dos concorrentes
+      const forcasConcorrentes = new Set();
+      const fraquezasConcorrentes = new Set();
+      (parsed.concorrentes || []).forEach(c => {
+        (c.top3_forcas || []).forEach(f => forcasConcorrentes.add(f.toLowerCase().substring(0, 25)));
+        (c.top3_fraquezas || []).forEach(f => fraquezasConcorrentes.add(f.toLowerCase().substring(0, 25)));
+      });
+      if (parsed.matriz_swot_cliente?.fraquezas) {
+        parsed.matriz_swot_cliente.fraquezas = parsed.matriz_swot_cliente.fraquezas.map(fr => {
+          const frLower = (fr || "").toLowerCase().substring(0, 25);
+          const isCopied = [...fraquezasConcorrentes].some(f => f.includes(frLower) || frLower.includes(f));
+          return isCopied ? `⚠️ [FRAQUEZA POSSIVELMENTE COPIADA DO CONCORRENTE — revise]: ${fr}` : fr;
+        });
       }
 
       setResults(parsed);
@@ -1360,8 +1257,6 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
       }
       setStep("results");
     } catch (e) {
-      clearTimeout(timeoutId);
-      if (e.name === "AbortError") return; // timeout já tratou o estado
       setErr("Erro: " + e.message); setStep("collect");
     } finally {
       setAnalyzing(false);
@@ -1533,7 +1428,7 @@ ${r.insight_prioritario}`;
             )}
           </div>
         )}
-        <div style={{ marginTop:32, textAlign:"center", fontFamily:"'DM Mono',monospace", fontSize:9, color:"#2a2825", letterSpacing:"0.14em" }}>v11.0 · SAAS READY · SUPABASE AUTH + RLS</div>
+        <div style={{ marginTop:32, textAlign:"center", fontFamily:"'DM Mono',monospace", fontSize:9, color:"#2a2825", letterSpacing:"0.14em" }}>v7.0 · SAAS READY · SUPABASE AUTH + RLS</div>
       </div>
     </div>
   );
@@ -1541,140 +1436,42 @@ ${r.insight_prioritario}`;
   // ══════════════════════════════════════════════════════════════════════════════
   // ── SCREEN: ANALYZING ────────────────────────────────────────────────────────
   // ══════════════════════════════════════════════════════════════════════════════
-  if (step === "analyzing") {
-    // Progresso visual honesto: avança com o tempo real (cap em 95% até concluir)
-    // ESTIMATIVA DINÂMICA: 120s base + 90s por concorrente (ex: 3 conc ≈ 390s)
-    const ESTIMATED_SECS  = Math.max(120, valid.length * 90 + 120);
-    const rawPct          = Math.min(95, Math.round((elapsed / ESTIMATED_SECS) * 100));
-    const displayPct      = rawPct;
-    const isLong          = elapsed >= ESTIMATED_SECS * 0.5;   // aviso após 50% do tempo estimado
-    const isVeryLong      = elapsed >= ESTIMATED_SECS * 0.85;  // aviso urgente após 85% do tempo estimado
-
-    const fmtElapsed = elapsed < 60
-      ? `${elapsed}s`
-      : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
-
-    return (
-      <div style={{ ...S.bg, display:"flex", alignItems:"center", justifyContent:"center", minHeight:"100vh" }}>
-        <style>{fonts}</style>
-        <div style={{ maxWidth:420, width:"100%", padding:"0 1.5rem", animation:"fadein 0.4s ease" }}>
-
-          {/* Header */}
-          <div style={{ textAlign:"center", marginBottom:28 }}>
-            <div style={S.eyebrow}>Processando</div>
-            <div style={{ ...S.h1, fontSize:"1.5rem" }}>
-              Gerando inteligência<br/>
-              <em style={{ color:"#c8f060", fontStyle:"italic" }}>competitiva...</em>
-            </div>
-          </div>
-
-          {/* ── BARRA DE PROGRESSO REAL ── */}
-          <div style={{ marginBottom:24 }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-              <span style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#4a4845", letterSpacing:"0.08em" }}>
-                PROGRESSO ESTIMADO
-              </span>
-              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:11, color:"#c8f060" }}>
-                  {displayPct}%
-                </span>
-                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#4a4845" }}>
-                  ⏱ {fmtElapsed}
-                </span>
-              </div>
-            </div>
-            {/* Track */}
-            <div style={{ height:4, background:"rgba(255,255,255,0.06)", borderRadius:2, overflow:"hidden" }}>
-              <div style={{
-                height:"100%",
-                width:`${displayPct}%`,
-                background:"linear-gradient(90deg, rgba(200,240,96,0.6), #c8f060)",
-                borderRadius:2,
-                transition:"width 1s linear",
-                boxShadow:"0 0 8px rgba(200,240,96,0.3)",
-              }}/>
-            </div>
-          </div>
-
-          {/* ── STEPS LIST — cicla infinitamente ── */}
-          <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
-            {LOADING_STEPS.map((s, i) => {
-              const isActive = i === loadingStep;
-              return (
-                <div key={i} style={{
-                  display:"flex", alignItems:"center", gap:12,
-                  padding:"10px 13px", borderRadius:8,
-                  background: isActive ? "rgba(200,240,96,0.1)" : "rgba(255,255,255,0.02)",
-                  border:`0.5px solid ${isActive ? "rgba(200,240,96,0.35)" : "rgba(255,255,255,0.05)"}`,
-                  transition:"all 0.4s ease",
-                  animation: isActive ? "stepIn 0.3s ease" : "none",
-                  opacity: isActive ? 1 : 0.45,
-                }}>
-                  <div style={{
-                    width:22, height:22, borderRadius:"50%", flexShrink:0,
-                    background: isActive ? "rgba(200,240,96,0.2)" : "rgba(255,255,255,0.04)",
-                    border:`0.5px solid ${isActive ? "rgba(200,240,96,0.5)" : "rgba(255,255,255,0.07)"}`,
-                    display:"flex", alignItems:"center", justifyContent:"center",
-                    fontSize:12, transition:"all 0.4s ease",
-                  }}>
-                    {s.icon}
-                  </div>
-                  <span style={{
-                    fontSize:12.5, flex:1,
-                    color: isActive ? "#e8e6e0" : "#3a3835",
-                    fontFamily:"'DM Sans',sans-serif",
-                    transition:"color 0.4s ease",
-                  }}>{s.label}</span>
-                  {isActive && (
-                    <div style={{ display:"flex", gap:3, flexShrink:0 }}>
-                      {[0,1,2].map(j => (
-                        <div key={j} style={{ width:4, height:4, borderRadius:"50%", background:"#c8f060", animation:`pulse 1s ${j*0.18}s infinite` }}/>
-                      ))}
-                    </div>
-                  )}
+  if (step === "analyzing") return (
+    <div style={{ ...S.bg, display:"flex", alignItems:"center", justifyContent:"center", minHeight:"100vh" }}>
+      <style>{fonts}</style>
+      <div style={{ maxWidth:390, width:"100%", padding:"0 1.5rem", animation:"fadein 0.4s ease" }}>
+        <div style={{ textAlign:"center", marginBottom:32 }}>
+          <div style={S.eyebrow}>Processando</div>
+          <div style={{ ...S.h1, fontSize:"1.5rem" }}>Gerando inteligência<br/><em style={{ color:"#c8f060", fontStyle:"italic" }}>competitiva...</em></div>
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {LOADING_STEPS.map((s, i) => {
+            const status = i < loadingStep ? "done" : i === loadingStep ? "active" : "pending";
+            return (
+              <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 14px", borderRadius:8,
+                background: status==="done" ? "rgba(200,240,96,0.06)" : status==="active" ? "rgba(200,240,96,0.1)" : "rgba(255,255,255,0.02)",
+                border:`0.5px solid ${status==="done" ? "rgba(200,240,96,0.22)" : status==="active" ? "rgba(200,240,96,0.38)" : "rgba(255,255,255,0.05)"}`,
+                transition:"all 0.5s ease", animation:status==="active" ? "stepIn 0.35s ease" : "none" }}>
+                <div style={{ width:24, height:24, borderRadius:"50%", flexShrink:0,
+                  background: status==="done" ? "rgba(200,240,96,0.18)" : status==="active" ? "rgba(200,240,96,0.22)" : "rgba(255,255,255,0.04)",
+                  border:`0.5px solid ${status==="done" ? "rgba(200,240,96,0.45)" : status==="active" ? "rgba(200,240,96,0.55)" : "rgba(255,255,255,0.08)"}`,
+                  display:"flex", alignItems:"center", justifyContent:"center", fontSize:status==="done" ? 11 : 13, transition:"all 0.4s ease" }}>
+                  {status==="done" ? "✓" : status==="active" ? s.icon : "·"}
                 </div>
-              );
-            })}
-          </div>
-
-          {/* ── MENSAGEM DE CONTEXTO ── */}
-          <div style={{ marginTop:20, padding:"12px 14px", borderRadius:8,
-            background: isVeryLong ? "rgba(240,160,96,0.07)" : "rgba(255,255,255,0.02)",
-            border: `0.5px solid ${isVeryLong ? "rgba(240,160,96,0.22)" : "rgba(255,255,255,0.05)"}`,
-            transition:"all 0.6s ease",
-          }}>
-            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10.5, color: isVeryLong ? "#f0a060" : "#4a4845", lineHeight:1.7, textAlign:"center" }}>
-              {isVeryLong
-                ? `⏳ Análise complexa — ${fmtElapsed} aguardando. Cancele e tente com menos concorrentes se necessário.`
-                : isLong
-                  ? `⏱ Análise profunda em andamento (${fmtElapsed}) — análises com múltiplos concorrentes podem levar até 3 minutos.`
-                  : "análise profunda: share of voice · battlecards · SWOT · matriz de prioridades"
-              }
-            </div>
-          </div>
-
-          {/* ── BOTÃO CANCELAR (aparece após 30s) ── */}
-          {elapsed >= 30 && (
-            <div style={{ marginTop:16, textAlign:"center", animation:"fadein 0.4s ease" }}>
-              <button
-                style={{ background:"none", border:"0.5px solid rgba(240,80,80,0.25)", borderRadius:6, padding:"8px 20px",
-                  color:"rgba(240,80,80,0.6)", fontSize:12, cursor:"pointer", fontFamily:"'DM Mono',monospace",
-                  letterSpacing:"0.06em", transition:"all 0.2s" }}
-                onClick={() => {
-                  abortControllerRef.current?.abort();
-                  setErr("Análise cancelada. Você pode tentar novamente com menos concorrentes ou dados mais simples.");
-                  setStep("collect");
-                  setAnalyzing(false);
-                }}
-              >
-                × Cancelar análise
-              </button>
-            </div>
-          )}
+                <span style={{ fontSize:13, flex:1, color:status==="done" ? "#c8f060" : status==="active" ? "#e8e6e0" : "#3a3835",
+                  fontFamily:status==="done" ? "'DM Mono',monospace" : "'DM Sans',sans-serif", transition:"all 0.5s ease" }}>{s.label}</span>
+                {status==="active" && <div style={{ display:"flex", gap:3, flexShrink:0 }}>{[0,1,2].map(j => <div key={j} style={{ width:4, height:4, borderRadius:"50%", background:"#c8f060", animation:`pulse 1s ${j*0.18}s infinite` }}/>)}</div>}
+                {status==="done" && <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:"rgba(200,240,96,0.4)", flexShrink:0 }}>ok</span>}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ marginTop:24, textAlign:"center", fontFamily:"'DM Mono',monospace", fontSize:10, color:"#3a3835", animation:"shimmer 2s infinite" }}>
+          análise profunda: share of voice · battlecards · SWOT · matriz de prioridades
         </div>
       </div>
-    );
-  }
+    </div>
+  );
 
   // ══════════════════════════════════════════════════════════════════════════════
   // ── SCREEN: RESULTS ──────────────────────────────────────────────────────────
@@ -1695,7 +1492,7 @@ ${r.insight_prioritario}`;
               <div className="print-lime print-label" style={S.eyebrow}>Relatório · {client.name}</div>
               <div style={{ ...S.h1, fontSize:"1.5rem" }}>Inteligência <em className="print-lime" style={{ color:"#c8f060", fontStyle:"italic" }}>Competitiva</em></div>
               <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#4a4845", marginTop:5 }}>
-                {activeUser?.name} · {activeUser?.role} · {new Date().toLocaleDateString("pt-BR")} · v11.0
+                {activeUser?.name} · {activeUser?.role} · {new Date().toLocaleDateString("pt-BR")} · v7.0
               </div>
             </div>
             <div className="no-print" style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"flex-start" }}>
@@ -2012,7 +1809,7 @@ ${r.insight_prioritario}`;
                 ⊞ MATRIZ DE PRIORIDADES — ESFORÇO vs IMPACTO
               </div>
               <p className="print-muted" style={{ fontSize:11.5, color:"#5a5855", marginBottom:16 }}>
-                Ações numeradas correspondem ao Roadmap Tático abaixo
+                Ações numeradas correspondem ao plano de 90 dias abaixo
               </p>
               <ActionPriorityMatrix actions={results.top5_acoes}/>
             </div>
@@ -2021,7 +1818,7 @@ ${r.insight_prioritario}`;
           {/* ── 10. TOP 5 AÇÕES ───────────────────────────────────────────── */}
           <div className="print-card" style={{ ...S.card, marginBottom:14 }}>
             <div className="print-lime print-label" style={{ fontFamily:"'DM Mono',monospace", fontSize:10.5, color:"#c8f060", marginBottom:14 }}>
-              ROADMAP TÁTICO — JANELA Q3/2026
+              TOP {results.top5_acoes?.length || 5} AÇÕES — PRÓXIMOS 90 DIAS
             </div>
             <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
               {results.top5_acoes?.map((a, i) => (
@@ -2034,7 +1831,6 @@ ${r.insight_prioritario}`;
                       <ActionTag prefix="impacto"  value={a.impacto}  map={impMap}/>
                       <ActionTag prefix="esforço"  value={a.esforco}  map={effMap2}/>
                       {a.prazo_dias && <span style={{ background:"rgba(255,255,255,0.05)", color:"#5a5855", borderRadius:4, padding:"2px 7px", fontSize:9.5, fontFamily:"'DM Mono',monospace" }}>prazo: {a.prazo_dias}d</span>}
-                      {a.gap_source && <span style={{ background:"rgba(200,240,96,0.07)", color:"rgba(200,240,96,0.55)", borderRadius:4, padding:"2px 7px", fontSize:9.5, fontFamily:"'DM Mono',monospace", border:"0.5px solid rgba(200,240,96,0.18)" }}>gap {a.gap_source}</span>}
                     </div>
                     <div className="print-muted" style={{ fontSize:12, color:"#7a7870", marginBottom:4 }}>Por que: {a.porque}</div>
                     <div className="print-lime" style={{ fontFamily:"'DM Mono',monospace", fontSize:10.5, color:"rgba(200,240,96,0.55)" }}>Medir: {a.como_medir}</div>
@@ -2054,7 +1850,7 @@ ${r.insight_prioritario}`;
 
           {/* ── FOOTER ───────────────────────────────────────────────────── */}
           <div className="print-footer" style={{ display:"none", marginTop:28, paddingTop:14, borderTop:"1px solid #ddd", fontSize:10, color:"#999", fontFamily:"monospace", justifyContent:"space-between" }}>
-            <span>Market Intelligence Platform v11.0</span>
+            <span>Market Intelligence Platform v7.0</span>
             <span>{client.name} · {client.niche}</span>
             <span>{activeUser?.name} · {new Date().toLocaleDateString("pt-BR")}</span>
           </div>
@@ -2314,7 +2110,7 @@ ${r.insight_prioritario}`;
           </div>
         </div>
         <div style={{ marginTop:20, textAlign:"center", fontFamily:"'DM Mono',monospace", fontSize:9, color:"#2a2825", letterSpacing:"0.14em" }}>
-          v11.0 · SAAS READY · SUPABASE AUTH + RLS · SWOT ANTI-ALUCINAÇÃO · VALIDAÇÃO DE SETOR
+          v7.0 · SAAS READY · SUPABASE AUTH + RLS · SWOT ANTI-ALUCINAÇÃO · VALIDAÇÃO DE SETOR
         </div>
       </div>
     </div>
