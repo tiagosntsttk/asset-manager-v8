@@ -1252,7 +1252,7 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
 
     try {
       const data = await callMarketIntelligence(
-        { max_tokens: 7000, messages: [{ role:"user", content:prompt }] },
+        { max_tokens: 4000, messages: [{ role:"user", content:prompt }] },
         session,
         abortControllerRef.current.signal,
       );
