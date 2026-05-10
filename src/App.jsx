@@ -57,19 +57,31 @@ input:focus, textarea:focus, select:focus {
   .print-page-break { page-break-before:always }
   body              { background:#fff !important; -webkit-print-color-adjust:exact; print-color-adjust:exact }
   .print-root       { background:#fff !important; color:#111 !important }
+
+  /* ── CORREÇÃO LEGIBILIDADE PDF ──────────────────────────────────────────────
+   * Muitos elementos usam cores inline do modo escuro (rgba branco, #7a7870, etc.)
+   * que ficam invisíveis num fundo branco. Esta regra força TODO texto dentro do
+   * relatório a ser escuro, depois restaura cores específicas via classes nomeadas.
+   * Não afeta a tela — só entra em ação no @media print.
+   * ─────────────────────────────────────────────────────────────────────────── */
+  .print-root *     { color:#1a1a1a !important }
+
+  /* Restore named accent colors */
+  .print-lime       { color:#2d6600 !important }
+  .print-cyan       { color:#005060 !important }
+  .print-purple     { color:#4a2070 !important }
+  .print-orange     { color:#7a3a00 !important }
+  .print-red        { color:#7a0000 !important }
+  .print-muted      { color:#555 !important }
+  .print-label      { color:#444 !important }
+
+  /* Card backgrounds */
   .print-card       { background:#f8f8f8 !important; border:0.5px solid #ddd !important; break-inside:avoid; margin-bottom:12px !important }
   .print-bar-track  { background:#e5e5e5 !important }
-  .print-muted      { color:#555 !important }
-  .print-lime       { color:#3a7200 !important }
-  .print-cyan       { color:#006070 !important }
-  .print-purple     { color:#5a3080 !important }
-  .print-orange     { color:#8a4a00 !important }
-  .print-red        { color:#8a0000 !important }
-  .print-label      { color:#444 !important }
   .print-divider    { border-color:#ddd !important }
-  .print-alert      { background:#fffbe6 !important; border-color:#d4b000 !important; color:#555 !important }
+  .print-alert      { background:#fffbe6 !important; border-color:#d4b000 !important }
   .print-insight    { background:#f0f8e0 !important; border-color:#6a9800 !important }
-  .print-insight-text { color:#111 !important; font-weight:600 !important }
+  .print-insight-text { font-weight:600 !important }
   .print-opp        { background:#f0f8e0 !important; border-color:#6a9800 !important }
   .print-gap-row    { background:#f5f5f5 !important }
   .print-action     { background:#f5f5f5 !important }
@@ -111,41 +123,29 @@ const normName = (str = "") => {
   ).join(" ");
 };
 
-// ── SANITIZAÇÃO v8 — Filtro de metadados de debugging ──────────────────────────
-// Camada 1: Remove notas internas do modelo que vazam para o output final.
-// Padrões como [FRAQUEZA POSSIVELMENTE COPIADA - revise], [TODO], [?] etc.
-// destroem a autoridade do produto quando vistos pelo cliente.
-const DEBUG_PATTERNS = [
-  /\[FRAQUEZA POSSIVELMENTE COPIADA.*?\]/gi,
-  /\[revise?\]/gi,
-  /\[TODO.*?\]/gi,
-  /\[FIXME.*?\]/gi,
-  /\[CHECK.*?\]/gi,
-  /\[\s*\?\s*\]/g,
-  /\[estimativa[^\]]*\]/gi,
-  /\[AMEAÇA GENÉRICA DETECTADA[^\]]*\]/gi,
-  /⚠️\s*\[AMEAÇA GENÉRICA[^\]]*\]:\s*/gi,
-  /⚠️\s*\[FRAQUEZA POSSIVELMENTE[^\]]*\]:\s*/gi,
-];
-
-function sanitizeOutput(text) {
-  if (typeof text !== "string") return text;
-  return DEBUG_PATTERNS.reduce((t, p) => t.replace(p, ''), t).replace(/\s{2,}/g, ' ').trim();
-}
-
-// Aplica sanitização recursiva em todos os campos de texto de um objeto
-function sanitizeAllFields(obj) {
-  if (typeof obj === "string") return sanitizeOutput(obj);
-  if (Array.isArray(obj)) return obj.map(item => sanitizeAllFields(item));
-  if (obj && typeof obj === "object") {
-    const result = {};
-    for (const [key, value] of Object.entries(obj)) {
-      result[key] = sanitizeAllFields(value);
-    }
-    return result;
-  }
-  return obj;
-}
+// ── CORREÇÃO TERMÔMETRO: calcula score a partir dos dados reais ────────────────
+// A IA tendia a retornar sempre 80–90. Esta função usa os 8 scores reais de cada
+// concorrente ponderados pelo nível de ameaça para um resultado honesto e variável.
+const calcThermoScore = (concorrentes = []) => {
+  const valid = concorrentes.filter(c => !c.fora_do_setor);
+  if (!valid.length) return null; // sem concorrentes válidos, mantém o valor da IA
+  const weights  = { alto:1.3, medio:1.0, baixo:0.7 };
+  const metrics  = [
+    "forca_marca","agressividade_ads","autoridade_social","percepcao_preco",
+    "qualidade_ux","velocidade_crescimento","diversificacao_canais","retencao_clientes",
+  ];
+  let totalScore = 0, totalWeight = 0;
+  valid.forEach(c => {
+    const w   = weights[c.nivel_ameaca] || 1.0;
+    const avg = metrics.reduce((s, m) => s + (Number(c[m]) || 0), 0) / metrics.length;
+    totalScore  += avg * w;
+    totalWeight += w;
+  });
+  const score = Math.round(totalWeight > 0 ? totalScore / totalWeight : 50);
+  // Escala: ≥75 = crítico | ≥55 = alto | ≥35 = moderado | <35 = baixo
+  const nivel = score >= 75 ? "critico" : score >= 55 ? "alto" : score >= 35 ? "moderado" : "baixo";
+  return { score, nivel };
+};
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ── SMALL COMPONENTS ──────────────────────────────────────────────────────────
@@ -167,14 +167,14 @@ function ScoreBar({ label, value, color="#c8f060" }) {
 
 function Badge({ level }) {
   const map = {
-    alto:  { bg:"rgba(240,80,80,0.1)",  c:"#f05050", b:"rgba(240,80,80,0.25)", label:"Tier 1 — Vigilância Ativa" },
-    medio: { bg:"rgba(240,160,96,0.1)", c:"#f0a060", b:"rgba(240,160,96,0.25)", label:"Tier 2 — Monitoramento" },
-    baixo: { bg:"rgba(200,240,96,0.1)", c:"#c8f060", b:"rgba(200,240,96,0.25)", label:"Tier 3 — Baixa Prioridade" },
+    alto:  { bg:"rgba(240,80,80,0.1)",  c:"#f05050", b:"rgba(240,80,80,0.25)" },
+    medio: { bg:"rgba(240,160,96,0.1)", c:"#f0a060", b:"rgba(240,160,96,0.25)" },
+    baixo: { bg:"rgba(200,240,96,0.1)", c:"#c8f060", b:"rgba(200,240,96,0.25)" },
   };
   const t = map[level] || map.medio;
   return (
-    <span style={{ background:t.bg, color:t.c, border:`0.5px solid ${t.b}`, borderRadius:4, padding:"3px 10px", fontSize:10.5, fontFamily:"'DM Mono',monospace", letterSpacing:"0.08em" }}>
-      {t.label}
+    <span style={{ background:t.bg, color:t.c, border:`0.5px solid ${t.b}`, borderRadius:4, padding:"3px 10px", fontSize:10.5, fontFamily:"'DM Mono',monospace", textTransform:"uppercase", letterSpacing:"0.08em" }}>
+      ameaça {level}
     </span>
   );
 }
@@ -236,6 +236,156 @@ function Dots({ color="#0e0e0f" }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// ── CREDIBILIDADE & METODOLOGIA ───────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Calcula confiança dos dados por concorrente ────────────────────────────────
+// Responde à crítica "números decorativos": o badge mostra ao leitor se os scores
+// vêm de dados reais inseridos ou de estimativa da IA com base em sinais públicos.
+function calcDataConfidence(comp) {
+  const fields = [
+    { key:"siteData",          weight:2,   label:"Site/Produtos" },
+    { key:"adsData",           weight:2,   label:"Anúncios" },
+    { key:"reviewsData",       weight:1.5, label:"Reviews" },
+    { key:"socialData",        weight:1.5, label:"Social" },
+    { key:"predictedChannels", weight:1,   label:"Canais" },
+    { key:"predictedAudience", weight:1,   label:"Público" },
+  ];
+  let filled = 0, total = 0;
+  const sources = [];
+  fields.forEach(f => {
+    total += f.weight;
+    if (comp[f.key] && comp[f.key].trim().length > 30) {
+      filled += f.weight;
+      sources.push(f.label);
+    }
+  });
+  const pct = total > 0 ? filled / total : 0;
+  if (pct >= 0.7) return { level:"alta",  label:"Dados verificados", color:"#c8f060", icon:"✦", sources };
+  if (pct >= 0.35) return { level:"media", label:"Dados parciais",    color:"#f0a060", icon:"◈", sources };
+  return              { level:"baixa", label:"Estimativa IA",      color:"#f08060", icon:"◇", sources };
+}
+
+function DataConfidenceBadge({ comp }) {
+  const conf = calcDataConfidence(comp);
+  return (
+    <span
+      title={`Confiança: ${conf.label}${conf.sources.length ? " — fontes: " + conf.sources.join(", ") : " — nenhum dado manual fornecido"}`}
+      style={{ background:"rgba(255,255,255,0.04)", border:`0.5px solid rgba(255,255,255,0.1)`,
+        borderRadius:4, padding:"2px 8px", fontSize:10, fontFamily:"'DM Mono',monospace",
+        color:conf.color, letterSpacing:"0.05em", cursor:"default" }}>
+      {conf.icon} {conf.label}
+    </span>
+  );
+}
+
+// ── Painel de metodologia colapsível ──────────────────────────────────────────
+// Transforma "números decorativos" em números com contexto. Mostra ao cliente
+// exatamente COMO cada score é derivado — aumentando percepção de valor e honestidade.
+function MetodologiaSection({ compsData = [] }) {
+  const [open, setOpen] = useState(false);
+  const hasAdsData     = compsData.some(c => c.adsData?.trim().length > 10);
+  const hasReviewsData = compsData.some(c => c.reviewsData?.trim().length > 10);
+  const hasSocialData  = compsData.some(c => c.socialData?.trim().length > 10);
+
+  const scoreItems = [
+    ["Força de marca",       "Reconhecimento estimado: presença orgânica, menções públicas, histórico da marca, domínio de keyword de marca vs concorrentes no nicho."],
+    ["Agressividade em ads", "Volume de mídia paga: sinais do Meta Ads Library, Google Shopping, densidade de criativos detectados, frequência de promoções e ofertas."],
+    ["Autoridade social",    "Presença em redes sociais: seguidores estimados, frequência de posts, engajamento aparente, uso de influencers e UGC detectado."],
+    ["Percepção de preço",   "Posicionamento RELATIVO no nicho: 0 = mais barato do mercado, 100 = mais caro. Score alto ≠ qualidade alta — indica ticket acima da média."],
+    ["Qualidade UX/site",    "Indicadores de conversão: clareza de CTA, mobile-first, velocidade aparente, copy de persuasão, checkout simplificado, proposta de valor clara."],
+    ["Velocidade crescimento","Tendência de expansão: novos produtos, canais, parcerias, aumento de presença digital e/ou física detectados no período recente."],
+    ["Diversif. de canais",  "Variedade de canais de aquisição: Meta + Google + TikTok + SEO + Email + Marketplace + Influencer. Mais canais = menos dependência de um único."],
+    ["Retenção de clientes", "Mecanismos de recorrência: programa de fidelidade, email/CRM, clube VIP, assinatura, remarketing e NPS estimado via reviews detectados."],
+  ];
+
+  return (
+    <div className="print-card" style={{ ...S.card, marginBottom:14, borderColor:"rgba(255,255,255,0.06)" }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{ background:"none", border:"none", cursor:"pointer", width:"100%", textAlign:"left",
+          display:"flex", justifyContent:"space-between", alignItems:"center", padding:0 }}>
+        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#4a4845", letterSpacing:"0.1em" }}>
+          🔬 METODOLOGIA & TRANSPARÊNCIA DE DADOS
+        </div>
+        <span style={{ fontSize:11, color:"#3a3835" }}>{open ? "▲ fechar" : "▼ ver como os scores são calculados"}</span>
+      </button>
+
+      {open && (
+        <div style={{ marginTop:16, display:"flex", flexDirection:"column", gap:14, animation:"fadein 0.25s ease" }}>
+
+          {/* Aviso de estimativa */}
+          <div style={{ fontSize:12, color:"#c8a060", lineHeight:1.75, padding:"10px 14px",
+            background:"rgba(240,160,96,0.06)", borderRadius:6, borderLeft:"2px solid rgba(240,160,96,0.35)" }}>
+            <strong>Aviso:</strong> Os scores, percentuais e rankings são <strong>estimativas baseadas em sinais públicos</strong> analisados por IA no momento da geração. Não representam dados auditados ou métricas extraídas de plataformas de analytics. Recomendamos validação humana dos pontos críticos antes de decisões de investimento significativas.
+          </div>
+
+          {/* Tabela de scores */}
+          <div>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#c8f060", marginBottom:10, letterSpacing:"0.08em" }}>
+              DEFINIÇÃO DE CADA SCORE (ESCALA 0–100, POSIÇÃO RELATIVA NO NICHO)
+            </div>
+            {scoreItems.map(([label, desc], i) => (
+              <div key={i} style={{ display:"flex", gap:12, padding:"8px 10px", alignItems:"flex-start",
+                background: i%2===0 ? "rgba(255,255,255,0.02)" : "transparent", borderRadius:4, marginBottom:2 }}>
+                <div style={{ fontSize:11.5, fontWeight:500, color:"#b8b0a8", minWidth:165, flexShrink:0 }}>{label}</div>
+                <div style={{ fontSize:11, color:"#5a5855", lineHeight:1.65 }}>{desc}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Termômetro */}
+          <div>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#60d4f0", marginBottom:8, letterSpacing:"0.08em" }}>
+              FÓRMULA DO TERMÔMETRO COMPETITIVO
+            </div>
+            <div style={{ fontSize:11.5, color:"#5a5855", lineHeight:1.75, padding:"10px 14px",
+              background:"rgba(96,212,240,0.04)", borderRadius:6, borderLeft:"2px solid rgba(96,212,240,0.2)" }}>
+              Score = média ponderada dos 8 scores de cada concorrente × peso do nível de ameaça<br/>
+              (ameaça alto = ×1.3 | médio = ×1.0 | baixo = ×0.7)<br/>
+              Calculado no frontend a partir dos dados da IA — não é um número arbitrário.<br/>
+              <strong style={{ color:"#60d4f0" }}>Escala:</strong> &lt;35 = Baixo · 35–54 = Moderado · 55–74 = Alto · ≥75 = Crítico
+            </div>
+          </div>
+
+          {/* Share of Voice */}
+          <div>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#d4a0f0", marginBottom:8, letterSpacing:"0.08em" }}>
+              SHARE OF VOICE — COMO É ESTIMADO
+            </div>
+            <div style={{ fontSize:11.5, color:"#5a5855", lineHeight:1.65, padding:"10px 14px",
+              background:"rgba(212,160,240,0.04)", borderRadius:6, borderLeft:"2px solid rgba(212,160,240,0.2)" }}>
+              Estimativa de visibilidade relativa no mercado baseada em: presença orgânica, volume de ads detectado, autoridade social e histórico da marca. <strong style={{ color:"#c8a0e8" }}>Não é dado de tráfego real</strong> — é uma heurística comparativa para benchmark de posicionamento.
+            </div>
+          </div>
+
+          {/* Fontes */}
+          <div>
+            <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#f0a060", marginBottom:8, letterSpacing:"0.08em" }}>
+              FONTES DE DADOS CONSULTADAS
+            </div>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+              {[
+                "Site/landing pages","Busca orgânica (Google)","Marketplaces (ML/Shopee)","Reviews públicos","Redes sociais (perfis)","Conhecimento base Claude AI",
+              ].map((src, i) => (
+                <span key={i} style={{ fontSize:10.5, fontFamily:"'DM Mono',monospace", color:"#4a4845",
+                  background:"rgba(255,255,255,0.03)", border:"0.5px solid rgba(255,255,255,0.07)",
+                  borderRadius:4, padding:"3px 9px" }}>
+                  {src}
+                </span>
+              ))}
+              {hasAdsData && <span style={{ fontSize:10.5, fontFamily:"'DM Mono',monospace", color:"#c8f060", background:"rgba(200,240,96,0.06)", border:"0.5px solid rgba(200,240,96,0.2)", borderRadius:4, padding:"3px 9px" }}>✓ Dados de anúncios (inseridos)</span>}
+              {hasReviewsData && <span style={{ fontSize:10.5, fontFamily:"'DM Mono',monospace", color:"#c8f060", background:"rgba(200,240,96,0.06)", border:"0.5px solid rgba(200,240,96,0.2)", borderRadius:4, padding:"3px 9px" }}>✓ Reviews reais (inseridos)</span>}
+              {hasSocialData && <span style={{ fontSize:10.5, fontFamily:"'DM Mono',monospace", color:"#c8f060", background:"rgba(200,240,96,0.06)", border:"0.5px solid rgba(200,240,96,0.2)", borderRadius:4, padding:"3px 9px" }}>✓ Social/TikTok (inseridos)</span>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // ── VISUAL COMPONENTS (NOVOS) ─────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -243,10 +393,10 @@ function Dots({ color="#0e0e0f" }) {
 function CompetitiveThermometer({ termometro }) {
   if (!termometro) return null;
   const levelMap = {
-    critico:  { color:"#f05050", bg:"rgba(240,80,80,0.07)",   border:"rgba(240,80,80,0.25)",   label:"TIER 1 — VIGILÂNCIA ATIVA",  icon:"🔴" },
-    alto:     { color:"#f0a060", bg:"rgba(240,160,96,0.07)",  border:"rgba(240,160,96,0.25)",  label:"TIER 1 — VIGILÂNCIA ATIVA",     icon:"🟠" },
-    moderado: { color:"#f0d060", bg:"rgba(240,208,96,0.07)",  border:"rgba(240,208,96,0.25)",  label:"TIER 2 — MONITORAMENTO", icon:"🟡" },
-    baixo:    { color:"#c8f060", bg:"rgba(200,240,96,0.07)",  border:"rgba(200,240,96,0.25)",  label:"TIER 3 — BAIXA PRIORIDADE",    icon:"🟢" },
+    critico:  { color:"#f05050", bg:"rgba(240,80,80,0.07)",   border:"rgba(240,80,80,0.25)",   label:"CRÍTICO",  icon:"🔴" },
+    alto:     { color:"#f0a060", bg:"rgba(240,160,96,0.07)",  border:"rgba(240,160,96,0.25)",  label:"ALTO",     icon:"🟠" },
+    moderado: { color:"#f0d060", bg:"rgba(240,208,96,0.07)",  border:"rgba(240,208,96,0.25)",  label:"MODERADO", icon:"🟡" },
+    baixo:    { color:"#c8f060", bg:"rgba(200,240,96,0.07)",  border:"rgba(200,240,96,0.25)",  label:"BAIXO",    icon:"🟢" },
   };
   const t = levelMap[termometro.nivel] || levelMap.moderado;
   const score = termometro.score || 0;
@@ -255,7 +405,7 @@ function CompetitiveThermometer({ termometro }) {
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:14 }}>
         <div style={{ flex:1 }}>
           <div className="print-label" style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:t.color, letterSpacing:"0.12em", marginBottom:7 }}>
-            {t.icon} THREAT INDEX™ — {t.label}
+            {t.icon} TERMÔMETRO COMPETITIVO — NÍVEL {t.label}
           </div>
           <p className="print-muted" style={{ fontSize:13, color:"#ccc8c0", lineHeight:1.65, maxWidth:480 }}>
             {termometro.descricao}
@@ -263,7 +413,7 @@ function CompetitiveThermometer({ termometro }) {
         </div>
         <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:5, flexShrink:0 }}>
           <div style={{ fontSize:34, fontWeight:300, fontFamily:"'Fraunces',serif", color:t.color, lineHeight:1 }}>{score}</div>
-          <div style={{ fontSize:9, fontFamily:"'DM Mono',monospace", color:"rgba(255,255,255,0.22)" }}>/ 100</div>
+          <div className="print-muted" style={{ fontSize:9, fontFamily:"'DM Mono',monospace", color:"rgba(255,255,255,0.22)" }}>/ 100</div>
           <div style={{ width:64, height:5, background:"rgba(255,255,255,0.07)", borderRadius:3 }}>
             <div style={{ height:"100%", width:`${score}%`, background:t.color, borderRadius:3, transition:"width 1.4s ease" }}/>
           </div>
@@ -486,8 +636,8 @@ function BattleCard({ battlecard, compName, clientName }) {
         </div>
       </div>
       <div style={{ padding:"9px 12px", background:"rgba(175,155,235,0.05)", borderRadius:6, borderLeft:"2px solid rgba(175,155,235,0.28)" }}>
-        <div className="print-purple" style={{ fontSize:9.5, fontFamily:"'DM Mono',monospace", color:"rgba(175,155,235,0.6)", marginBottom:5 }}>🎯 VETOR DE ATAQUE PRIORITÁRIO</div>
-        <div className="print-muted" style={{ fontSize:12, color:"#c8c0de", lineHeight:1.65, fontWeight:500 }}>{battlecard.vetor_ataque_prioritario || battlecard.argumento_principal}</div>
+        <div className="print-purple" style={{ fontSize:9.5, fontFamily:"'DM Mono',monospace", color:"rgba(175,155,235,0.6)", marginBottom:5 }}>💡 ARGUMENTO PRINCIPAL DE VENDA</div>
+        <div className="print-muted" style={{ fontSize:12, color:"#c8c0de", lineHeight:1.65, fontWeight:500 }}>{battlecard.argumento_principal}</div>
       </div>
     </div>
   );
@@ -744,13 +894,8 @@ Mesmo assim, continue a análise normalmente para fins de benchmark.` }],
     setStep("analyzing"); setErr(null); setAnalyzing(true);
 
     // ── PROMPT REESCRITO v6 — ANTI-ALUCINAÇÃO + SWOT CONSISTENTE ───────────
-    const prompt = `Você é um analista sênior de inteligência competitiva de uma firma de elite. Sua resposta é lida diretamente por um CEO pagante.
-NUNCA inclua notas internas, colchetes de revisão, comentários de incerteza, metadados de processo ou alertas de debugging.
-Incerteza legítima deve ser expressa como "estimativa baseada em dados públicos disponíveis", nunca como anotação entre colchetes.
-Seus clientes pagam R$ 5.000 a R$ 30.000 por relatório.
-Você é BRUTALMENTE ESPECÍFICO. Nunca escreve algo que possa servir para qualquer empresa.
-
-REGRA ABSOLUTA: Nunca retorne campos vazios, null, ou texto genérico como "ação adicional necessária". Se os dados forem insuficientes, extrapola com base nos gaps identificados e sinaliza com a expressão "estimativa fundamentada" no campo "porque". O relatório é lido diretamente por um CEO — incompletude é inaceitável.
+    const prompt = `Você é um analista sênior de inteligência competitiva especializado em e-commerce e varejo brasileiro.
+Sua função é produzir análises CIRÚRGICAS e ESPECÍFICAS — nunca genéricas ou que poderiam ser aplicadas a qualquer empresa.
 
 ═══════════════════════════════════════════════════════════
 CONTEXTO DO CLIENTE
@@ -833,6 +978,14 @@ REGRA 8 — MÍNIMO OBRIGATÓRIO DE OUTPUTS:
   • alertas_detectados: mínimo 3, máximo 5 — APENAS de concorrentes do mesmo setor
   • share_of_voice: OBRIGATÓRIO incluir ${client.name} e todos os concorrentes DO MESMO SETOR. Não inclua empresas de outros setores. Os percentuais PODEM somar menos de 100% (o restante é "outros players")
 
+REGRA 10 — SCORES DEVEM REFLETIR SINAIS OBSERVÁVEIS (ANTI-NÚMEROS DECORATIVOS):
+  • Cada score deve ser calibrado por evidência REAL ou amplamente conhecida — não invente números redondos
+  • PROIBIDO: dar scores acima de 75 sem evidência forte (marca nacional dominante, alta saturação de ads, produto líder de mercado)
+  • PROIBIDO: dar scores abaixo de 30 sem evidência clara de fraqueza (sem presença digital, sem ads visíveis, produto em declínio)
+  • Para concorrentes com POUCOS DADOS disponíveis: mantenha scores entre 35–65 (zona de incerteza honesta) — NÃO extrapole
+  • Share of Voice: se o concorrente é pequeno ou regional, não atribua mais de 20–25%. Se é player nacional dominante, pode chegar a 40–50%. Seja realista.
+  • scores_justificativa: para cada concorrente, preencha o campo "score_justificativa" com 1 frase explicando o maior score e o menor score atribuídos (ex: "Autoridade social alta (80) por forte presença no Instagram com mais de 500k seguidores detectados; Diversificação de canais baixa (35) pois opera apenas via Instagram e site próprio sem marketplace")
+
 Retorne APENAS JSON válido, sem markdown, sem texto extra.
 
 {
@@ -844,10 +997,6 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
     "⚡ Alerta 3",
     "⚡ Alerta 4 se relevante",
     "⚡ Alerta 5 se relevante"
-  ],
-
-  "movimentos_recentes": [
-    "🔄 [Concorrente]: [movimento detectado nos últimos 7 dias] — novos criativos de ads, mudanças de preço ou frete, novos produtos lançados, alterações de posicionamento orgânico. Se nenhum movimento for detectado, retorne array vazio []."
   ],
 
   "termometro_competitivo": {
@@ -879,6 +1028,8 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
       "diversificacao_canais":  0,
       "retencao_clientes":      0,
 
+      "score_justificativa": "1 frase: explique o score MAIS ALTO e o MAIS BAIXO atribuídos — cite o sinal observável que levou a essa avaliação. Ex: 'Autoridade social alta (80) por presença forte no Instagram; Diversificação baixa (35) pois opera apenas em 1 canal.'",
+
       "top3_forcas":   ["força específica e real 1","força 2","força 3"],
       "top3_fraquezas":["fraqueza específica e real 1","fraqueza 2","fraqueza 3"],
 
@@ -908,7 +1059,7 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
       "battlecard": {
         "quando_ganhamos":    "Cenário onde ${client.name} vence: baseado nas FRAQUEZAS REAIS deste concorrente. PROIBIDO usar as forças do concorrente aqui — isso seria contraditório.",
         "quando_perdemos":    "Cenário de risco real: baseado nas FORÇAS REAIS deste concorrente — seja honesto. PROIBIDO repetir o que está em quando_ganhamos.",
-        "vetor_ataque_prioritario":"Identifique a fraqueza mais explorável deste concorrente, cruze com uma capacidade existente de ${client.name}, e termine com estimativa de custo de implementação em R$ e prazo de ROI. Ex: '[Concorrente] tem frete grátis acima de R$150 mas nenhuma estratégia de pós-venda detectada. ${client.name} pode capturar 18-25% da base com fluxo de email de recompra em 7 dias + clube de pontos — custo estimado: R$300/mês, ROI esperado em 45 dias.'"
+        "argumento_principal":"Argumento de venda mais poderoso quando um cliente menciona este concorrente pelo nome. Deve ser específico ao diferencial REAL de ${client.name}."
       }
     }
   ],
@@ -947,19 +1098,16 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
   "top5_acoes": [
     {
       "acao":       "Ação clara, específica e executável por ${client.name}",
-      "porque":     "Justificativa com dado concreto da análise — cite concorrente ou gap. Se extrapolado, use a tag 'estimativa fundamentada'.",
+      "porque":     "Justificativa com dado concreto da análise — cite concorrente ou gap",
       "como_medir": "KPI específico e meta realista (ex: aumentar CTR de 1.2% para 2% em 60 dias)",
       "urgencia":   "alta|media|baixa",
       "impacto":    "alto|medio|baixo",
       "esforco":    "alto|medio|baixo",
-      "prazo_dias": 30,
-      "custo_estimado_implementacao": "Estimativa de custo em R$ para implementar esta ação (ex: 'R$ 300/mês via Klaviyo' ou 'R$ 2.000 setup + R$ 500/mês'). OBRIGATÓRIO — nunca deixe vazio.",
-      "prazo_para_roi_dias": 45,
-      "metrica_de_decisao": "Threshold numérico de go/no-go (ex: 'Se CTR > 2.5% em 30 dias, escalar investimento. Abaixo disso, pivotar para formato UGC.'). OBRIGATÓRIO."
+      "prazo_dias": 30
     }
   ],
 
-  "diretiva_estrategica": "Decisão de investimento com threshold numérico explícito. Formato OBRIGATÓRIO: 'Se ${client.name} alocar [valor/recurso], o modelo sugere [resultado mensurável] em [prazo]. Abaixo desse threshold, [consequência negativa esperada].' Ex: 'Se ${client.name} alocar R$2.000/mês em Meta Ads com criativos UGC, o modelo sugere captura de 12-18% de market share incremental em 90 dias. Abaixo de R$800/mês, o ROI não cobre o CAC e a operação queima caixa.'"
+  "insight_prioritario": "Insight crítico, honesto e acionável de 2-3 linhas sobre o que ${client.name} deve fazer AGORA. Cite os concorrentes pelo nome. Evite generalidades."
 }`;
 
 
@@ -970,6 +1118,18 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
       const parsed = JSON.parse(clean);
 
       // ── Sanitização e normalização pós-parse ──────────────────────────────
+      // 0. CORREÇÃO TERMÔMETRO: recalcula score a partir dos dados reais dos
+      //    concorrentes, ignorando o valor gerado pela IA (que era sempre 80–90).
+      //    Não altera a descrição nem manipula dados — apenas usa os scores já
+      //    gerados para calcular a pressão competitiva de forma consistente.
+      if (parsed.termometro_competitivo && Array.isArray(parsed.concorrentes)) {
+        const calc = calcThermoScore(parsed.concorrentes);
+        if (calc) {
+          parsed.termometro_competitivo.score = calc.score;
+          parsed.termometro_competitivo.nivel = calc.nivel;
+        }
+      }
+
       // 1. Garantir mínimo de 5 ações
       if (!Array.isArray(parsed.top5_acoes)) parsed.top5_acoes = [];
       while (parsed.top5_acoes.length < 5) {
@@ -1048,14 +1208,11 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
         });
       }
 
-      // 9. v8.0 SANITIZAÇÃO: remove metadados de debugging antes de exibir/gravar
-      const sanitized = sanitizeAllFields(parsed);
-
-      setResults(sanitized);
+      setResults(parsed);
 
       const { error: insertErr } = await supabase.from("analises_concorrencia").insert({
         usuario_id: session.user.id, cliente_nome: client.name, nicho: client.niche,
-        dados_cliente: { ...client }, resultados_json: sanitized,
+        dados_cliente: { ...client }, resultados_json: parsed,
         concorrentes_analisados: valid.map(c => c.name),
       });
       if (!insertErr) {
@@ -1075,13 +1232,13 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
   const reportText = () => {
     if (!results) return "";
     const r = results;
-    return `RELATÓRIO DE INTELIGÊNCIA COMPETITIVA v8.0
+    return `RELATÓRIO DE INTELIGÊNCIA COMPETITIVA v6
 Cliente: ${client.name} | Nicho: ${client.niche}
 Objetivo: ${client.objective}
 ${client.diferenciais ? `Diferenciais do cliente: ${client.diferenciais}` : ""}
 Gerado por: ${activeUser?.name || ""} · ${new Date().toLocaleDateString("pt-BR")}
 
-━━━ THREAT INDEX™ ━━━
+━━━ TERMÔMETRO COMPETITIVO ━━━
 Nível: ${r.termometro_competitivo?.nivel?.toUpperCase() || "N/A"} (${r.termometro_competitivo?.score || 0}/100)
 ${r.termometro_competitivo?.descricao || ""}
 
@@ -1091,7 +1248,7 @@ ${r.alertas_detectados?.join("\n") || ""}
 ━━━ SUMÁRIO EXECUTIVO ━━━
 ${r.sumario_executivo}
 
-━━━ ÍNDICE DE VISIBILIDADE RELATIVA (IVR) ━━━
+━━━ SHARE OF VOICE (estimado) ━━━
 ${r.share_of_voice?.map(s => `${s.nome}: ${s.percentual_estimado}%`).join(" | ") || ""}
 
 ${r.concorrentes?.map(c => `━━━ CONCORRENTE: ${c.nome?.toUpperCase()} ━━━
@@ -1123,7 +1280,7 @@ Sentimento — Score de Reputação: ${c.sentimento_clientes?.score_reputacao ||
 BATTLECARD vs ${c.nome}:
   Quando ganhamos: ${c.battlecard?.quando_ganhamos || "N/A"}
   Quando perdemos: ${c.battlecard?.quando_perdemos || "N/A"}
-  Vetor de ataque: ${c.battlecard?.vetor_ataque_prioritario || c.battlecard?.argumento_principal || "N/A"}
+  Argumento principal: ${c.battlecard?.argumento_principal || "N/A"}
 
 Oportunidade para ${client.name}: ${c.oportunidade}`).join("\n\n") || ""}
 
@@ -1133,19 +1290,16 @@ FRAQUEZAS: ${r.matriz_swot_cliente?.fraquezas?.join(" | ") || ""}
 OPORTUNIDADES: ${r.matriz_swot_cliente?.oportunidades?.join(" | ") || ""}
 AMEAÇAS: ${r.matriz_swot_cliente?.ameacas?.join(" | ") || ""}
 
-━━━ VETORES DE EXPANSÃO NÃO-CONTESTADOS ━━━
+━━━ GAPS DE MERCADO ━━━
 ${r.gaps_mercado?.map((g, i) => `${i+1}. ${g}`).join("\n") || ""}
 
-━━━ ROADMAP DE RESPOSTA COMPETITIVA ━━━
+━━━ TOP 5 AÇÕES — PRÓXIMOS 90 DIAS ━━━
 ${r.top5_acoes?.map((a, i) => `${i+1}. ${a.acao} [Urgência: ${a.urgencia} | Impacto: ${a.impacto} | Esforço: ${a.esforco} | Prazo: ${a.prazo_dias}d]
    Por que: ${a.porque}
-   Medir: ${a.como_medir}
-   Custo: ${a.custo_estimado_implementacao || "N/A"}
-   ROI em: ${a.prazo_para_roi_dias || "N/A"} dias
-   Go/No-Go: ${a.metrica_de_decisao || "N/A"}`).join("\n\n") || ""}
+   Medir: ${a.como_medir}`).join("\n\n") || ""}
 
-━━━ DIRETIVA ESTRATÉGICA ━━━
-${r.diretiva_estrategica || r.insight_prioritario}`;
+━━━ INSIGHT PRIORITÁRIO ━━━
+${r.insight_prioritario}`;
   };
 
   const copy = () => { navigator.clipboard.writeText(reportText()).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2200); }); };
@@ -1239,7 +1393,7 @@ ${r.diretiva_estrategica || r.insight_prioritario}`;
             )}
           </div>
         )}
-        <div style={{ marginTop:32, textAlign:"center", fontFamily:"'DM Mono',monospace", fontSize:9, color:"#2a2825", letterSpacing:"0.14em" }}>v8.0 · SAAS READY · SUPABASE AUTH + RLS</div>
+        <div style={{ marginTop:32, textAlign:"center", fontFamily:"'DM Mono',monospace", fontSize:9, color:"#2a2825", letterSpacing:"0.14em" }}>v7.0 · SAAS READY · SUPABASE AUTH + RLS</div>
       </div>
     </div>
   );
@@ -1303,7 +1457,7 @@ ${r.diretiva_estrategica || r.insight_prioritario}`;
               <div className="print-lime print-label" style={S.eyebrow}>Relatório · {client.name}</div>
               <div style={{ ...S.h1, fontSize:"1.5rem" }}>Inteligência <em className="print-lime" style={{ color:"#c8f060", fontStyle:"italic" }}>Competitiva</em></div>
               <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#4a4845", marginTop:5 }}>
-                {activeUser?.name} · {activeUser?.role} · {new Date().toLocaleDateString("pt-BR")} · v8.0
+                {activeUser?.name} · {activeUser?.role} · {new Date().toLocaleDateString("pt-BR")} · v7.0
               </div>
             </div>
             <div className="no-print" style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"flex-start" }}>
@@ -1374,28 +1528,6 @@ ${r.diretiva_estrategica || r.insight_prioritario}`;
             </div>
           )}
 
-          {/* ── 2b. MOVIMENTOS DETECTADOS — ÚLTIMOS 7 DIAS ────────────────── */}
-          <div className="print-card" style={{ ...S.card, marginBottom:14, borderColor:"rgba(96,212,240,0.18)", animation:"fadein 0.38s ease" }}>
-            <div className="print-cyan print-label" style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#60d4f0", letterSpacing:"0.1em", marginBottom:10 }}>
-              🔄 MOVIMENTOS DETECTADOS — ÚLTIMOS 7 DIAS
-            </div>
-            {results.movimentos_recentes?.length > 0 ? (
-              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                {results.movimentos_recentes.map((mov, i) => (
-                  <div key={i} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"8px 12px",
-                    background:"rgba(96,212,240,0.04)", border:"0.5px solid rgba(96,212,240,0.12)",
-                    borderLeft:"2px solid rgba(96,212,240,0.35)", borderRadius:6, fontSize:12.5, color:"#b8d8e4", lineHeight:1.6 }}>
-                    {mov}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ fontSize:12.5, color:"#5a5855", lineHeight:1.6, fontStyle:"italic" }}>
-                Nenhuma alteração de posicionamento detectada no período. Próxima varredura automática em 7 dias.
-              </div>
-            )}
-          </div>
-
           {/* ── 3. SUMÁRIO EXECUTIVO ──────────────────────────────────────── */}
           <div className="print-card" style={{ ...S.card, marginBottom:14, borderColor:"rgba(200,240,96,0.18)", animation:"fadein 0.4s ease" }}>
             <div className="print-lime print-label" style={{ fontFamily:"'DM Mono',monospace", fontSize:10.5, color:"#c8f060", marginBottom:8 }}>SUMÁRIO EXECUTIVO</div>
@@ -1406,13 +1538,16 @@ ${r.diretiva_estrategica || r.insight_prioritario}`;
           {results.share_of_voice?.length > 0 && (
             <div className="print-card" style={{ ...S.card, marginBottom:14, animation:"fadein 0.45s ease" }}>
               <div className="print-lime print-label" style={{ fontFamily:"'DM Mono',monospace", fontSize:10.5, color:"#c8f060", marginBottom:14 }}>
-                📊 ÍNDICE DE VISIBILIDADE RELATIVA (IVR) — MODELO PROPRIETÁRIO
+                📊 SHARE OF VOICE — ESTIMATIVA DE VISIBILIDADE NO MERCADO
               </div>
               <ShareOfVoiceSection data={results.share_of_voice} clientName={client.name}/>
             </div>
           )}
 
-          {/* ── 5. CARDS DE CONCORRENTES ──────────────────────────────────── */}
+          {/* ── 5. METODOLOGIA — colapsível, só visível na tela ───────────── */}
+          <MetodologiaSection compsData={comps}/>
+
+          {/* ── 6. CARDS DE CONCORRENTES ──────────────────────────────────── */}
           <div style={{ display:"flex", flexDirection:"column", gap:12, marginBottom:14 }}>
             {results.concorrentes?.map((c, i) => (
               <div key={i} className="print-card" style={{ ...S.card, animation:`fadein ${0.3+i*0.12}s ease` }}>
@@ -1429,6 +1564,8 @@ ${r.diretiva_estrategica || r.insight_prioritario}`;
                     </div>
                   </div>
                   <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                    {/* Badge de confiança — mostra se scores vieram de dados reais ou estimativa */}
+                    <DataConfidenceBadge comp={comps.find(cc => cc.name?.toLowerCase() === c.nome?.toLowerCase()) || {}}/>
                     {c.fora_do_setor && (
                       <span style={{ background:"rgba(240,80,80,0.12)", color:"#f05050", border:"0.5px solid rgba(240,80,80,0.35)", borderRadius:4, padding:"3px 9px", fontSize:10, fontFamily:"'DM Mono',monospace" }}>⚠ FORA DO SETOR</span>
                     )}
@@ -1445,7 +1582,7 @@ ${r.diretiva_estrategica || r.insight_prioritario}`;
                 )}
 
                 {/* 8 scores */}
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:14 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:8 }}>
                   <div>
                     <ScoreBar label="Força de marca"        value={c.forca_marca}            color="#c8f060"/>
                     <ScoreBar label="Agressividade em ads"  value={c.agressividade_ads}       color="#f0a060"/>
@@ -1459,6 +1596,14 @@ ${r.diretiva_estrategica || r.insight_prioritario}`;
                     <ScoreBar label="Retenção de clientes"  value={c.retencao_clientes}       color="#80c8f0"/>
                   </div>
                 </div>
+
+                {/* Justificativa dos scores — transparência metodológica */}
+                {c.score_justificativa && (
+                  <div style={{ marginBottom:14, padding:"7px 10px", background:"rgba(255,255,255,0.02)", borderRadius:5, borderLeft:"2px solid rgba(255,255,255,0.08)" }}>
+                    <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:"#3a3835", letterSpacing:"0.06em" }}>BASE DOS SCORES · </span>
+                    <span style={{ fontSize:11, color:"#5a5855", lineHeight:1.6 }}>{c.score_justificativa}</span>
+                  </div>
+                )}
 
                 {/* Forças / Fraquezas */}
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:14 }}>
@@ -1611,7 +1756,7 @@ ${r.diretiva_estrategica || r.insight_prioritario}`;
 
           {/* ── 8. GAPS DE MERCADO ────────────────────────────────────────── */}
           <div className="print-card" style={{ ...S.card, marginBottom:14 }}>
-            <div className="print-lime print-label" style={{ fontFamily:"'DM Mono',monospace", fontSize:10.5, color:"#c8f060", marginBottom:14 }}>VETORES DE EXPANSÃO NÃO-CONTESTADOS</div>
+            <div className="print-lime print-label" style={{ fontFamily:"'DM Mono',monospace", fontSize:10.5, color:"#c8f060", marginBottom:14 }}>GAPS DE MERCADO IDENTIFICADOS</div>
             <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
               {results.gaps_mercado?.map((g, i) => (
                 <div key={i} className="print-gap-row" style={{ display:"flex", gap:10, alignItems:"flex-start", padding:"8px 10px", background:"rgba(255,255,255,0.02)", borderRadius:6 }}>
@@ -1629,16 +1774,16 @@ ${r.diretiva_estrategica || r.insight_prioritario}`;
                 ⊞ MATRIZ DE PRIORIDADES — ESFORÇO vs IMPACTO
               </div>
               <p className="print-muted" style={{ fontSize:11.5, color:"#5a5855", marginBottom:16 }}>
-                Ações numeradas correspondem ao Roadmap de Resposta Competitiva abaixo
+                Ações numeradas correspondem ao plano de 90 dias abaixo
               </p>
               <ActionPriorityMatrix actions={results.top5_acoes}/>
             </div>
           )}
 
-          {/* ── 10. TOP 5 AÇÕES — ROADMAP DE RESPOSTA COMPETITIVA ────────── */}
+          {/* ── 10. TOP 5 AÇÕES ───────────────────────────────────────────── */}
           <div className="print-card" style={{ ...S.card, marginBottom:14 }}>
             <div className="print-lime print-label" style={{ fontFamily:"'DM Mono',monospace", fontSize:10.5, color:"#c8f060", marginBottom:14 }}>
-              ROADMAP DE RESPOSTA COMPETITIVA — {new Date().toLocaleDateString("pt-BR", {year:"numeric"}).slice(-4)} Q{Math.ceil((new Date().getMonth()+1)/3)}
+              TOP {results.top5_acoes?.length || 5} AÇÕES — PRÓXIMOS 90 DIAS
             </div>
             <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
               {results.top5_acoes?.map((a, i) => (
@@ -1654,31 +1799,23 @@ ${r.diretiva_estrategica || r.insight_prioritario}`;
                     </div>
                     <div className="print-muted" style={{ fontSize:12, color:"#7a7870", marginBottom:4 }}>Por que: {a.porque}</div>
                     <div className="print-lime" style={{ fontFamily:"'DM Mono',monospace", fontSize:10.5, color:"rgba(200,240,96,0.55)" }}>Medir: {a.como_medir}</div>
-                    {/* v8.0: Campos de racionalização econômica */}
-                    {(a.custo_estimado_implementacao || a.prazo_para_roi_dias || a.metrica_de_decisao) && (
-                      <div style={{ marginTop:8, padding:"8px 10px", background:"rgba(96,212,240,0.04)", borderRadius:5, borderLeft:"2px solid rgba(96,212,240,0.2)" }}>
-                        {a.custo_estimado_implementacao && <div style={{ fontSize:11, color:"#80c8d8", marginBottom:3 }}><span style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"rgba(96,212,240,0.5)" }}>CUSTO:</span> {a.custo_estimado_implementacao}</div>}
-                        {a.prazo_para_roi_dias && <div style={{ fontSize:11, color:"#80c8d8", marginBottom:3 }}><span style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"rgba(96,212,240,0.5)" }}>ROI ESPERADO:</span> {a.prazo_para_roi_dias} dias</div>}
-                        {a.metrica_de_decisao && <div style={{ fontSize:11, color:"#a0d0e0" }}><span style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"rgba(96,212,240,0.5)" }}>GO/NO-GO:</span> {a.metrica_de_decisao}</div>}
-                      </div>
-                    )}
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* ── 11. DIRETIVA ESTRATÉGICA (ex: Insight Prioritário) ─────────── */}
-          {(results.diretiva_estrategica || results.insight_prioritario) && (
+          {/* ── 11. INSIGHT PRIORITÁRIO ───────────────────────────────────── */}
+          {results.insight_prioritario && (
             <div className="print-insight" style={{ padding:"16px 18px", background:"rgba(200,240,96,0.06)", borderRadius:8, border:"0.5px solid rgba(200,240,96,0.22)" }}>
-              <div className="print-lime print-label" style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#c8f060", marginBottom:8, letterSpacing:"0.08em" }}>⚡ DIRETIVA ESTRATÉGICA</div>
-              <div className="print-insight-text" style={{ fontSize:13.5, color:"#e8e6e0", lineHeight:1.8, fontWeight:500 }}>{results.diretiva_estrategica || results.insight_prioritario}</div>
+              <div className="print-lime print-label" style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#c8f060", marginBottom:8, letterSpacing:"0.08em" }}>⚡ INSIGHT PRIORITÁRIO</div>
+              <div className="print-insight-text" style={{ fontSize:13.5, color:"#e8e6e0", lineHeight:1.8, fontWeight:500 }}>{results.insight_prioritario}</div>
             </div>
           )}
 
           {/* ── FOOTER ───────────────────────────────────────────────────── */}
           <div className="print-footer" style={{ display:"none", marginTop:28, paddingTop:14, borderTop:"1px solid #ddd", fontSize:10, color:"#999", fontFamily:"monospace", justifyContent:"space-between" }}>
-            <span>Market Intelligence Platform v8.0</span>
+            <span>Market Intelligence Platform v7.0</span>
             <span>{client.name} · {client.niche}</span>
             <span>{activeUser?.name} · {new Date().toLocaleDateString("pt-BR")}</span>
           </div>
@@ -1921,14 +2058,13 @@ ${r.diretiva_estrategica || r.insight_prioritario}`;
           <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#4a4845", marginBottom:10, letterSpacing:"0.08em" }}>O QUE ESTA ANÁLISE GERA</div>
           <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
             {[
-              ["⚡","Threat Index™ com score 0-100 e benchmarks de setor"],
+              ["⚡","Termômetro de ameaça competitiva com score 0-100"],
               ["🕸","Radar comparativo em 8 dimensões (marca, ads, UX, retenção...)"],
-              ["📊","Índice de Visibilidade Relativa (IVR) — modelo proprietário"],
-              ["⚔️","Battlecards com Vetor de Ataque Prioritário por concorrente"],
+              ["📊","Share of voice estimado no mercado"],
+              ["⚔️","Battlecards: quando ganhar e quando perder para cada concorrente"],
               ["🔲","Matriz SWOT do cliente baseada na análise competitiva"],
-              ["🔄","Movimentos detectados nos últimos 7 dias"],
               ["💬","Sentimento de clientes: elogios e críticas de cada rival"],
-              ["⊞","Roadmap de Resposta Competitiva com racionalização econômica"],
+              ["⊞","Matriz esforço vs impacto para priorizar as ações"],
               ["🖨","Relatório executivo completo com exportação PDF"],
             ].map(([icon, text], i) => (
               <div key={i} style={{ display:"flex", gap:10, alignItems:"center" }}>
@@ -1939,7 +2075,7 @@ ${r.diretiva_estrategica || r.insight_prioritario}`;
           </div>
         </div>
         <div style={{ marginTop:20, textAlign:"center", fontFamily:"'DM Mono',monospace", fontSize:9, color:"#2a2825", letterSpacing:"0.14em" }}>
-          v8.0 · SAAS READY · SUPABASE AUTH + RLS · SWOT ANTI-ALUCINAÇÃO · VALIDAÇÃO DE SETOR
+          v7.0 · SAAS READY · SUPABASE AUTH + RLS · SWOT ANTI-ALUCINAÇÃO · VALIDAÇÃO DE SETOR
         </div>
       </div>
     </div>
