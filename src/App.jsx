@@ -59,9 +59,11 @@ input:focus, textarea:focus, select:focus {
    * "Cabeçalhos e rodapés". Funciona em ~90% dos casos sem intervenção do usuário.
    * ─────────────────────────────────────────────────────────────────────────── */
   @page {
-    margin: 0.45in 0.55in 0.5in 0.55in;
+    margin: 0;
     size: A4 portrait;
   }
+  /* Compensação das margens zero: padding aplicado diretamente no .print-root */
+  .print-root { padding: 0.45in 0.55in !important }
   .no-print         { display:none !important }
   .print-page-break { page-break-before:always }
   body              { background:#fff !important; -webkit-print-color-adjust:exact; print-color-adjust:exact }
@@ -147,6 +149,16 @@ const DEBUG_PATTERNS = [
   /\[AMEAÇA GENÉRICA DETECTADA[^\]]*\]/gi,
   /⚠️\s*\[AMEAÇA GENÉRICA[^\]]*\]:\s*/gi,
   /⚠️\s*\[FRAQUEZA POSSIVELMENTE[^\]]*\]:\s*/gi,
+  // FIX #2: instrução interna do contexto_mercado que o modelo devolvia verbatim
+  /[—–-]\s*cite\s+proxy[^".)]*/gi,
+  /[—–-]\s*com\s+fonte\s+ou\s+proxy/gi,
+  // FIX #3: instrução interna do gaps_mercado que o modelo devolvia verbatim
+  /[—–-]\s*cite\s+evidência\s*\([^)]*\)/gi,
+  /\(review,\s*ausência\s*detectada[^)]*\)/gi,
+  // FIX #4: instrução interna do campo "porque" das ações
+  /[—–-]\s*cite\s+o\s+concorrente\s+ou\s+gap[^".)]*/gi,
+  // FIX #7b: marcador de contradição SWOT que sobrevivia ao sanitize
+  /⚠️\s*\[CONTRADIÇÃO INTERNA DETECTADA[^\]]*\]:\s*/gi,
 ];
 
 function sanitizeOutput(text) {
@@ -609,11 +621,12 @@ function ActionPriorityMatrix({ actions }) {
         {actions.map((a, i) => {
           const ex = effMap[a.esforco] || 0.5;
           const iy = impMap[a.impacto] || 0.5;
-          // Jitter inteligente: evita sobreposição de dots com offset angular por índice
-          const angle = (i * 137.5 * Math.PI) / 180; // golden angle spacing
-          const jitterR = 10;
-          const jx = (i === 0) ? 0 : Math.cos(angle) * jitterR * (i * 0.3);
-          const jy = (i === 0) ? 0 : Math.sin(angle) * jitterR * (i * 0.3);
+          // FIX #5: jitter com raio progressivo maior — evita sobreposição de dots
+          // quando múltiplas ações têm o mesmo esforco/impacto (ex: todos "medio/medio")
+          const angle  = (i * 137.5 * Math.PI) / 180; // golden angle spacing
+          const jitterR = 18; // era 10 — aumentado para garantir separação visual
+          const jx = (i === 0) ? 0 : Math.cos(angle) * jitterR * (i * 0.8); // era i*0.3
+          const jy = (i === 0) ? 0 : Math.sin(angle) * jitterR * (i * 0.8); // era i*0.3
           const dotX = Math.min(P + IW - 16, Math.max(P + 16, P + IW * ex + jx));
           const dotY = Math.min(P + IH - 16, Math.max(P + 16, P + IH * iy + jy));
           const c = urgColor[a.urgencia] || "#f0a060";
@@ -1403,24 +1416,24 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
 
       // 10. ANTI-CONTRADIÇÃO SWOT: detecta força que espelha diretamente uma fraqueza
       //     Ex: "Estratégia de marketing eficaz" (força) vs "Falta de presença online" (fraqueza)
+      //     FIX #7: remove a força contraditória em vez de prefixá-la com texto de aviso visível
       if (parsed.matriz_swot_cliente?.forcas && parsed.matriz_swot_cliente?.fraquezas) {
         const fraquezasLower = (parsed.matriz_swot_cliente.fraquezas || []).map(f =>
           (f || "").toLowerCase().replace(/^⚠️\s*/,"").substring(0, 40)
         );
-        parsed.matriz_swot_cliente.forcas = parsed.matriz_swot_cliente.forcas.map(forca => {
-          const forcaLower = (forca || "").toLowerCase().substring(0, 40);
-          // Detectar pares contraditórios conhecidos
-          const contradicoes = [
-            ["marketing eficaz","presença online"],["estratégia de marketing","falta de marketing"],
-            ["preços competitivos","preços acima"],["qualidade","falta de qualidade"],
-          ];
-          const isContraditoria = contradicoes.some(([a, b]) =>
-            forcaLower.includes(a) && fraquezasLower.some(fr => fr.includes(b))
-          );
-          return isContraditoria
-            ? `⚠️ [CONTRADIÇÃO INTERNA DETECTADA — esta força contradiz uma fraqueza listada. Revise antes de entregar]: ${forca}`
-            : forca;
-        });
+        parsed.matriz_swot_cliente.forcas = parsed.matriz_swot_cliente.forcas
+          .map(forca => {
+            const forcaLower = (forca || "").toLowerCase().substring(0, 40);
+            const contradicoes = [
+              ["marketing eficaz","presença online"],["estratégia de marketing","falta de marketing"],
+              ["preços competitivos","preços acima"],["qualidade","falta de qualidade"],
+            ];
+            const isContraditoria = contradicoes.some(([a, b]) =>
+              forcaLower.includes(a) && fraquezasLower.some(fr => fr.includes(b))
+            );
+            return isContraditoria ? null : forca; // FIX: null em vez de prefixo visível
+          })
+          .filter(Boolean); // remove nulls — força contraditória eliminada silenciosamente
       }
 
       // 11. v20 SANITIZAÇÃO: remove metadados de debugging antes de exibir/gravar
@@ -2167,34 +2180,45 @@ ${r.insight_prioritario}`;
               <p className="print-muted" style={{ fontSize:11.5, color:"#5a5855", marginBottom:16 }}>
                 Ações numeradas correspondem ao plano de 90 dias abaixo
               </p>
-              <ActionPriorityMatrix actions={results.top5_acoes}/>
+              {/* FIX #1b: filtra placeholders antes de passar para a matriz */}
+              <ActionPriorityMatrix actions={results.top5_acoes.filter(a => a?.acao && !a.acao.startsWith("Definir com o time"))}/>
             </div>
           )}
 
           {/* ── 10. TOP 5 AÇÕES ───────────────────────────────────────────── */}
           <div className="print-card" style={{ ...S.card, marginBottom:14 }}>
-            <div className="print-lime print-label" style={{ fontFamily:"'DM Mono',monospace", fontSize:10.5, color:"#c8f060", marginBottom:14 }}>
-              TOP {results.top5_acoes?.length || 5} AÇÕES — PRÓXIMOS 90 DIAS
-            </div>
-            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-              {results.top5_acoes?.map((a, i) => (
-                <div key={i} className="print-action" style={{ display:"flex", gap:14, padding:"12px 14px", background:"rgba(255,255,255,0.02)", borderRadius:6 }}>
-                  <div style={{ minWidth:26, height:26, borderRadius:"50%", background:"rgba(200,240,96,0.1)", border:"0.5px solid rgba(200,240,96,0.25)", color:"#c8f060", fontFamily:"'DM Mono',monospace", fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{i+1}</div>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:500, fontSize:13.5, marginBottom:5 }}>{a.acao}</div>
-                    <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:7 }}>
-                      <ActionTag prefix="urgência" value={a.urgencia} map={urgMap}/>
-                      <ActionTag prefix="impacto"  value={a.impacto}  map={impMap}/>
-                      <ActionTag prefix="esforço"  value={a.esforco}  map={effMap2}/>
-                      {a.prazo_dias && <span style={{ background:"rgba(255,255,255,0.05)", color:"#5a5855", borderRadius:4, padding:"2px 7px", fontSize:9.5, fontFamily:"'DM Mono',monospace" }}>prazo: {a.prazo_dias}d</span>}
-                    </div>
-                    <div className="print-muted" style={{ fontSize:12, color:"#7a7870", marginBottom:4 }}>Por que: {a.porque}</div>
-                    <div className="print-lime" style={{ fontFamily:"'DM Mono',monospace", fontSize:10.5, color:"rgba(200,240,96,0.55)" }}>Medir: {a.como_medir}</div>
+            {(() => {
+              // FIX #1: filtra ações placeholder antes de renderizar — nunca expor "cozinha" ao cliente
+              const PLACEHOLDER_MARKER = "Definir com o time";
+              const realActions = (results.top5_acoes || []).filter(
+                a => a?.acao && !a.acao.startsWith(PLACEHOLDER_MARKER)
+              );
+              return (
+                <>
+                  <div className="print-lime print-label" style={{ fontFamily:"'DM Mono',monospace", fontSize:10.5, color:"#c8f060", marginBottom:14 }}>
+                    TOP {realActions.length || 5} AÇÕES — PRÓXIMOS 90 DIAS
                   </div>
-                </div>
-              ))}
-            </div>
-          </div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                    {realActions.map((a, i) => (
+                      <div key={i} className="print-action" style={{ display:"flex", gap:14, padding:"12px 14px", background:"rgba(255,255,255,0.02)", borderRadius:6 }}>
+                        <div style={{ minWidth:26, height:26, borderRadius:"50%", background:"rgba(200,240,96,0.1)", border:"0.5px solid rgba(200,240,96,0.25)", color:"#c8f060", fontFamily:"'DM Mono',monospace", fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{i+1}</div>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontWeight:500, fontSize:13.5, marginBottom:5 }}>{a.acao}</div>
+                          <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:7 }}>
+                            <ActionTag prefix="urgência" value={a.urgencia} map={urgMap}/>
+                            <ActionTag prefix="impacto"  value={a.impacto}  map={impMap}/>
+                            <ActionTag prefix="esforço"  value={a.esforco}  map={effMap2}/>
+                            {a.prazo_dias && <span style={{ background:"rgba(255,255,255,0.05)", color:"#5a5855", borderRadius:4, padding:"2px 7px", fontSize:9.5, fontFamily:"'DM Mono',monospace" }}>prazo: {a.prazo_dias}d</span>}
+                          </div>
+                          <div className="print-muted" style={{ fontSize:12, color:"#7a7870", marginBottom:4 }}>Por que: {a.porque}</div>
+                          <div className="print-lime" style={{ fontFamily:"'DM Mono',monospace", fontSize:10.5, color:"rgba(200,240,96,0.55)" }}>Medir: {a.como_medir}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
 
           {/* ── 11. INSIGHT PRIORITÁRIO ───────────────────────────────────── */}
           {results.insight_prioritario && (
