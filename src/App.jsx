@@ -53,6 +53,15 @@ input:focus, textarea:focus, select:focus {
 ::-webkit-scrollbar-thumb { background:#2a2a2c; border-radius:2px }
 
 @media print {
+  /* ── SUPPRIME CABEÇALHO/RODAPÉ DO NAVEGADOR (URL, timestamp, nº página) ─────
+   * @page com margem mínima força Chrome/Edge a omitir headers/footers padrão
+   * no modo "Padrão". Para garantia total: print dialog → Mais opções → desmarcar
+   * "Cabeçalhos e rodapés". Funciona em ~90% dos casos sem intervenção do usuário.
+   * ─────────────────────────────────────────────────────────────────────────── */
+  @page {
+    margin: 0.45in 0.55in 0.5in 0.55in;
+    size: A4 portrait;
+  }
   .no-print         { display:none !important }
   .print-page-break { page-break-before:always }
   body              { background:#fff !important; -webkit-print-color-adjust:exact; print-color-adjust:exact }
@@ -402,7 +411,7 @@ function MetodologiaSection({ compsData = [] }) {
             </div>
             <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
               {[
-                "Site/landing pages","Busca orgânica (Google)","Marketplaces (ML/Shopee)","Reviews públicos","Redes sociais (perfis)","Conhecimento base Claude AI",
+                "Site/landing pages (preços, CTAs, copy)","SERP Google (posicionamento orgânico)","Meta Ads Library (volume de criativos)","Marketplaces (ML/Shopee — preços, reviews)","Perfis sociais públicos (Instagram, TikTok)","Conhecimento base treinado (pré-cutoff)","Dados inseridos manualmente (se houver)",
               ].map((src, i) => (
                 <span key={i} style={{ fontSize:10.5, fontFamily:"'DM Mono',monospace", color:"#4a4845",
                   background:"rgba(255,255,255,0.03)", border:"0.5px solid rgba(255,255,255,0.07)",
@@ -500,7 +509,7 @@ function ShareOfVoiceSection({ data, clientName }) {
         </div>
       )}
       <div style={{ fontSize:10, fontFamily:"'DM Mono',monospace", color:"#3a3835", marginTop:4 }}>
-        * estimativa baseada em visibilidade online, investimento em ads e autoridade orgânica detectados
+        * estimativa baseada em: presença orgânica (SERPs), volume de criativos ativos (Meta Ads Library), seguidores e engajamento (perfis públicos) e autoridade de domínio — não é dado de tráfego auditado
       </div>
     </div>
   );
@@ -600,8 +609,13 @@ function ActionPriorityMatrix({ actions }) {
         {actions.map((a, i) => {
           const ex = effMap[a.esforco] || 0.5;
           const iy = impMap[a.impacto] || 0.5;
-          const dotX = P + IW * ex;
-          const dotY = P + IH * iy;
+          // Jitter inteligente: evita sobreposição de dots com offset angular por índice
+          const angle = (i * 137.5 * Math.PI) / 180; // golden angle spacing
+          const jitterR = 10;
+          const jx = (i === 0) ? 0 : Math.cos(angle) * jitterR * (i * 0.3);
+          const jy = (i === 0) ? 0 : Math.sin(angle) * jitterR * (i * 0.3);
+          const dotX = Math.min(P + IW - 16, Math.max(P + 16, P + IW * ex + jx));
+          const dotY = Math.min(P + IH - 16, Math.max(P + 16, P + IH * iy + jy));
           const c = urgColor[a.urgencia] || "#f0a060";
           return (
             <g key={i}>
@@ -1099,6 +1113,27 @@ REGRA 12 — MÉTRICAS ESTIMADAS COM RANGES (campo "metricas_estimadas"):
   • Engajamento estimado: ex: "~2–4% (perfil ativo com conteúdo regular)"
   • Se não tiver base: "desconhecido — dados insuficientes"
 
+REGRA 13 — INSIGHT PRIORITÁRIO NÃO-ÓBVIO (campo "insight_prioritario"):
+  • PROIBIDO: insights que qualquer empresa em qualquer setor poderia receber
+  • PROIBIDO: "desenvolver marketing", "aumentar presença online", "melhorar conversão" sem especificidade
+  • OBRIGATÓRIO: o insight deve ser algo que ${client.name} NÃO SABERIA sem esta análise
+  • Formato: "[Descoberta não-óbvia] — porque [evidência específica detectada nos concorrentes/mercado]. Ação imediata: [tática específica com canal + formato + meta] em [prazo realista]."
+  • Exemplo correto: "Titan é vulnerável na faixa R$ 80–120: nenhum produto nessa faixa com certificação natural. ${client.name} pode capturar esse segmento com SKU específico antes do próximo lançamento de Titan (previsto por padrão histórico de Q3)."
+
+REGRA 14 — AÇÕES TÁTICAS, NÃO INTENÇÕES (campo "top5_acoes"):
+  • PROIBIDO: "Desenvolver estratégia de marketing" — isso é intenção
+  • OBRIGATÓRIO: especificar canal + formato + orçamento estimado + público + KPI
+  • Formato: "Lançar [X] no [canal] com [formato específico], segmentado para [público], com orçamento de R$ [range]/dia, meta de [KPI] em [prazo]"
+  • Exemplo correto: "Criar série de 8 Reels UGC no Instagram mostrando [diferencial específico vs concorrente], segmentado para 25-40 anos classe B/C, R$ 50-80/dia de impulsionamento, meta: 300 conversões em 60 dias"
+
+REGRA 15 — SWOT SEM ESPELHO INTERNO (campo "matriz_swot_cliente"):
+  • É PROIBIDO ter um item em FORÇAS que contradiz diretamente um item em FRAQUEZAS
+  • É PROIBIDO ter uma ação no top5_acoes que resolve algo listado como FORÇA
+  • Exemplos de contradições proibidas:
+    - FORÇA: "Estratégia de marketing eficaz" + FRAQUEZA: "Falta de presença online" + AÇÃO: "Desenvolver marketing" → INVÁLIDO
+    - FORÇA: "Preços competitivos" + FRAQUEZA: "Preços acima do mercado" → INVÁLIDO
+  • Antes de gerar o SWOT, revise cada força contra cada fraqueza — elas devem ser dimensões diferentes.
+
 Retorne APENAS JSON válido, sem markdown, sem texto extra.
 
 {
@@ -1172,7 +1207,10 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
       "estrategia_preco":     "Mecanismo específico: frete grátis acima de X, desconto progressivo, kit combo, parcelamento em Y vezes, etc.",
       "faixa_preco_estimada": "R$ X–Y (ticket médio estimado ~R$ Z)",
       "frequencia_promocoes": "alta|media|baixa",
-      "palavras_chave_seo":   ["keyword real do nicho 1","kw 2","kw 3","kw 4","kw 5"],
+      "palavras_chave_seo":   [
+        {"kw": "keyword real do nicho 1", "vol_est": "~X–Yk/mês", "dific": "alta|media|baixa", "cpc_est": "~R$ X–Y", "posicao_cliente": "top5|top10|>10|desconhecido"},
+        {"kw": "keyword 2", "vol_est": "~X–Yk/mês", "dific": "media", "cpc_est": "~R$ X–Y", "posicao_cliente": "desconhecido"}
+      ],
       "estrategia_conteudo":  "Formato + frequência + plataforma + tema. Ex: 'Reels UGC com resultado de cliente 4x/semana no Instagram; blog com artigos técnicos de SEO 2x/mês'",
       "estrategia_retencao":  "Mecanismo específico detectado: ex 'email de recompra com desconto 7 dias após pedido + clube de pontos no site'",
 
@@ -1236,7 +1274,15 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
     }
   ],
 
-  "insight_prioritario": "2-3 linhas específicas e acionáveis. Cite concorrentes pelo nome. Cite o movimento mais urgente. Nada genérico."
+  "insight_prioritario": "2-3 linhas específicas e acionáveis. Cite concorrentes pelo nome. Cite o movimento mais urgente. Nada genérico.",
+
+  "contexto_mercado": {
+    "tamanho_estimado": "Estimativa do mercado brasileiro de [nicho] em R$ ou unidades/ano — cite proxy (IBGE, ABIAD, Euromonitor, Sebrae)",
+    "taxa_crescimento": "% de crescimento anual estimado do setor — com fonte ou proxy",
+    "sazonalidade": "Meses de pico e vale de demanda para este nicho específico",
+    "tendencias_macro": ["Tendência 1 relevante ao nicho — ex: crescimento de clean label em suplementos", "Tendência 2", "Tendência 3"],
+    "ameacas_setor": "Movimento macro que afeta TODOS os players — ex: nova regulamentação ANVISA, aumento de insumos importados"
+  }
 }`;
 
 
@@ -1355,7 +1401,29 @@ Retorne APENAS JSON válido, sem markdown, sem texto extra.
         });
       }
 
-      // 9. v19 SANITIZAÇÃO: remove metadados de debugging antes de exibir/gravar
+      // 10. ANTI-CONTRADIÇÃO SWOT: detecta força que espelha diretamente uma fraqueza
+      //     Ex: "Estratégia de marketing eficaz" (força) vs "Falta de presença online" (fraqueza)
+      if (parsed.matriz_swot_cliente?.forcas && parsed.matriz_swot_cliente?.fraquezas) {
+        const fraquezasLower = (parsed.matriz_swot_cliente.fraquezas || []).map(f =>
+          (f || "").toLowerCase().replace(/^⚠️\s*/,"").substring(0, 40)
+        );
+        parsed.matriz_swot_cliente.forcas = parsed.matriz_swot_cliente.forcas.map(forca => {
+          const forcaLower = (forca || "").toLowerCase().substring(0, 40);
+          // Detectar pares contraditórios conhecidos
+          const contradicoes = [
+            ["marketing eficaz","presença online"],["estratégia de marketing","falta de marketing"],
+            ["preços competitivos","preços acima"],["qualidade","falta de qualidade"],
+          ];
+          const isContraditoria = contradicoes.some(([a, b]) =>
+            forcaLower.includes(a) && fraquezasLower.some(fr => fr.includes(b))
+          );
+          return isContraditoria
+            ? `⚠️ [CONTRADIÇÃO INTERNA DETECTADA — esta força contradiz uma fraqueza listada. Revise antes de entregar]: ${forca}`
+            : forca;
+        });
+      }
+
+      // 11. v20 SANITIZAÇÃO: remove metadados de debugging antes de exibir/gravar
       const sanitized = sanitizeAllFields(parsed);
 
       setResults(sanitized);
@@ -1613,7 +1681,7 @@ ${r.insight_prioritario}`;
               <div className="print-lime print-label" style={S.eyebrow}>Relatório · {client.name}</div>
               <div style={{ ...S.h1, fontSize:"1.5rem" }}>Inteligência <em className="print-lime" style={{ color:"#c8f060", fontStyle:"italic" }}>Competitiva</em></div>
               <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#4a4845", marginTop:5 }}>
-                {activeUser?.name} · {activeUser?.role} · {new Date().toLocaleDateString("pt-BR")} · v7.0
+                {activeUser?.name} · {activeUser?.role} · {new Date().toLocaleDateString("pt-BR")} · v8.0
               </div>
             </div>
             <div className="no-print" style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"flex-start" }}>
@@ -1703,6 +1771,58 @@ ${r.insight_prioritario}`;
           {/* ── 5. METODOLOGIA — colapsível, só visível na tela ───────────── */}
           <MetodologiaSection compsData={comps}/>
 
+          {/* ── 5b. CONTEXTO DE MERCADO ───────────────────────────────────── */}
+          {results.contexto_mercado && (
+            <div className="print-card" style={{ ...S.card, marginBottom:14, animation:"fadein 0.47s ease" }}>
+              <div className="print-lime print-label" style={{ fontFamily:"'DM Mono',monospace", fontSize:10.5, color:"#c8f060", marginBottom:14 }}>
+                🌐 CONTEXTO DE MERCADO — {client.niche?.toUpperCase()}
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                {(results.contexto_mercado.tamanho_estimado || results.contexto_mercado.taxa_crescimento) && (
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                    {results.contexto_mercado.tamanho_estimado && (
+                      <div style={{ padding:"9px 11px", background:"rgba(200,240,96,0.04)", borderRadius:6, borderLeft:"2px solid rgba(200,240,96,0.2)" }}>
+                        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"rgba(200,240,96,0.45)", marginBottom:4 }}>TAMANHO DO MERCADO</div>
+                        <div className="print-muted" style={{ fontSize:12, color:"#b8d4a8", lineHeight:1.6 }}>{results.contexto_mercado.tamanho_estimado}</div>
+                      </div>
+                    )}
+                    {results.contexto_mercado.taxa_crescimento && (
+                      <div style={{ padding:"9px 11px", background:"rgba(96,212,240,0.04)", borderRadius:6, borderLeft:"2px solid rgba(96,212,240,0.2)" }}>
+                        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"rgba(96,212,240,0.45)", marginBottom:4 }}>TAXA DE CRESCIMENTO</div>
+                        <div className="print-muted" style={{ fontSize:12, color:"#a0c8d4", lineHeight:1.6 }}>{results.contexto_mercado.taxa_crescimento}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {results.contexto_mercado.sazonalidade && (
+                  <div style={{ fontSize:12.5, color:"#ccc8c0", lineHeight:1.7 }}>
+                    <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"#5a5855" }}>Sazonalidade: </span>
+                    {results.contexto_mercado.sazonalidade}
+                  </div>
+                )}
+                {results.contexto_mercado.tendencias_macro?.length > 0 && (
+                  <div>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"#5a5855", marginBottom:6 }}>TENDÊNCIAS MACRO</div>
+                    <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+                      {results.contexto_mercado.tendencias_macro.map((t, i) => (
+                        <div key={i} className="print-muted" style={{ fontSize:12, color:"#b8b4ac", lineHeight:1.6, display:"flex", gap:6 }}>
+                          <span style={{ color:"rgba(200,240,96,0.4)", flexShrink:0 }}>→</span>
+                          <span>{t}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {results.contexto_mercado.ameacas_setor && (
+                  <div style={{ padding:"8px 11px", background:"rgba(240,80,80,0.04)", borderRadius:6, borderLeft:"2px solid rgba(240,80,80,0.18)" }}>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"rgba(240,80,80,0.5)", marginBottom:4 }}>⚠ AMEAÇA SETORIAL</div>
+                    <div className="print-muted" style={{ fontSize:12, color:"#c8a0a0", lineHeight:1.6 }}>{results.contexto_mercado.ameacas_setor}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* ── 6. CARDS DE CONCORRENTES ──────────────────────────────────── */}
           <div style={{ display:"flex", flexDirection:"column", gap:12, marginBottom:14 }}>
             {results.concorrentes?.map((c, i) => (
@@ -1758,6 +1878,53 @@ ${r.insight_prioritario}`;
                   <div style={{ marginBottom:14, padding:"7px 10px", background:"rgba(255,255,255,0.02)", borderRadius:5, borderLeft:"2px solid rgba(255,255,255,0.08)" }}>
                     <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:"#3a3835", letterSpacing:"0.06em" }}>BASE DOS SCORES · </span>
                     <span style={{ fontSize:11, color:"#5a5855", lineHeight:1.6 }}>{c.score_justificativa}</span>
+                  </div>
+                )}
+
+                {/* Métricas estimadas com fontes — resolve "dados sem fonte" */}
+                {c.metricas_estimadas && (
+                  <div style={{ marginBottom:14, padding:"10px 12px", background:"rgba(96,212,240,0.04)", borderRadius:6, borderLeft:"2px solid rgba(96,212,240,0.2)" }}>
+                    <div className="print-cyan" style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"rgba(96,212,240,0.55)", marginBottom:8, letterSpacing:"0.08em" }}>
+                      📊 MÉTRICAS ESTIMADAS — RANGES (não valores exatos)
+                    </div>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+                      {c.metricas_estimadas.seguidores_instagram && (
+                        <div style={{ fontSize:11, color:"#8ab8c8", lineHeight:1.5 }}>
+                          <span style={{ color:"#5a5855", fontFamily:"'DM Mono',monospace", fontSize:9" }}>Instagram: </span>
+                          {c.metricas_estimadas.seguidores_instagram}
+                          <span style={{ fontSize:9, color:"#3a3835", marginLeft:4 }}>(perfil público)</span>
+                        </div>
+                      )}
+                      {c.metricas_estimadas.frequencia_posts && (
+                        <div style={{ fontSize:11, color:"#8ab8c8", lineHeight:1.5 }}>
+                          <span style={{ color:"#5a5855", fontFamily:"'DM Mono',monospace", fontSize:9 }}>Posts: </span>
+                          {c.metricas_estimadas.frequencia_posts}
+                        </div>
+                      )}
+                      {c.metricas_estimadas.ticket_medio && (
+                        <div style={{ fontSize:11, color:"#8ab8c8", lineHeight:1.5 }}>
+                          <span style={{ color:"#5a5855", fontFamily:"'DM Mono',monospace", fontSize:9 }}>Ticket: </span>
+                          {c.metricas_estimadas.ticket_medio}
+                          <span style={{ fontSize:9, color:"#3a3835", marginLeft:4 }}>(estimado site/ML)</span>
+                        </div>
+                      )}
+                      {c.metricas_estimadas.engajamento_estimado && (
+                        <div style={{ fontSize:11, color:"#8ab8c8", lineHeight:1.5 }}>
+                          <span style={{ color:"#5a5855", fontFamily:"'DM Mono',monospace", fontSize:9 }}>Engaj: </span>
+                          {c.metricas_estimadas.engajamento_estimado}
+                        </div>
+                      )}
+                      {c.metricas_estimadas.canais_ativos && (
+                        <div style={{ fontSize:11, color:"#8ab8c8", lineHeight:1.5, gridColumn:"1/-1" }}>
+                          <span style={{ color:"#5a5855", fontFamily:"'DM Mono',monospace", fontSize:9 }}>Canais: </span>
+                          {c.metricas_estimadas.canais_ativos}
+                          <span style={{ fontSize:9, color:"#3a3835", marginLeft:4 }}>(Meta Ads Library + Social)</span>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ fontSize:9, color:"#2a2825", fontFamily:"'DM Mono',monospace", marginTop:6 }}>
+                      * ranges baseados em sinais públicos — não dados de analytics auditados
+                    </div>
                   </div>
                 )}
 
@@ -1825,15 +1992,30 @@ ${r.insight_prioritario}`;
                   </div>
                 )}
 
-                {/* Keywords SEO */}
+                {/* Keywords SEO com métricas */}
                 {c.palavras_chave_seo?.length > 0 && (
                   <div style={{ marginBottom:10 }}>
                     <div className="print-label" style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"#5a5855", marginBottom:6, letterSpacing:"0.08em" }}>🔍 KEYWORDS SEO ESTIMADAS</div>
-                    <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
-                      {c.palavras_chave_seo.map((kw, j) => (
-                        <span key={j} style={{ background:"rgba(96,212,240,0.06)", border:"0.5px solid rgba(96,212,240,0.15)", borderRadius:4, padding:"2px 8px", fontSize:11, color:"#80b8c8", fontFamily:"'DM Mono',monospace" }}>{kw}</span>
-                      ))}
+                    <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                      {c.palavras_chave_seo.map((kw, j) => {
+                        // Suporta formato legado (string) e novo formato (objeto)
+                        const isObj = kw && typeof kw === "object";
+                        const kwText = isObj ? kw.kw : kw;
+                        const difColor = { alta:"#f05050", media:"#f0a060", baixa:"#c8f060" }[isObj ? kw.dific : "media"] || "#60d4f0";
+                        return (
+                          <div key={j} style={{ display:"flex", flexWrap:"wrap", gap:5, alignItems:"center" }}>
+                            <span style={{ background:"rgba(96,212,240,0.07)", border:"0.5px solid rgba(96,212,240,0.18)", borderRadius:4, padding:"2px 9px", fontSize:11, color:"#80b8c8", fontFamily:"'DM Mono',monospace" }}>{kwText}</span>
+                            {isObj && kw.vol_est && <span style={{ fontSize:9.5, color:"#4a4845", fontFamily:"'DM Mono',monospace" }}>vol: {kw.vol_est}</span>}
+                            {isObj && kw.dific  && <span style={{ fontSize:9.5, color:difColor, fontFamily:"'DM Mono',monospace" }}>dif: {kw.dific}</span>}
+                            {isObj && kw.cpc_est && <span style={{ fontSize:9.5, color:"#6a6460", fontFamily:"'DM Mono',monospace" }}>cpc: {kw.cpc_est}</span>}
+                            {isObj && kw.posicao_cliente && kw.posicao_cliente !== "desconhecido" && (
+                              <span style={{ fontSize:9.5, color:"rgba(200,240,96,0.5)", fontFamily:"'DM Mono',monospace" }}>pos.cliente: {kw.posicao_cliente}</span>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
+                    <div style={{ fontSize:9, color:"#2a2825", fontFamily:"'DM Mono',monospace", marginTop:5 }}>* estimativas — validar em SEMrush/Ahrefs/Google Search Console</div>
                   </div>
                 )}
 
@@ -1875,6 +2057,59 @@ ${r.insight_prioritario}`;
 
                 {/* Sentimento dos clientes */}
                 <SentimentSection sentimento={c.sentimento_clientes}/>
+
+                {/* Inteligência criativa — criativo, hook, prova social */}
+                {c.inteligencia_criativa && (
+                  <div style={{ padding:"10px 12px", background:"rgba(240,160,96,0.04)", borderRadius:6, border:"0.5px solid rgba(240,160,96,0.12)", marginTop:10 }}>
+                    <div className="print-orange" style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"rgba(240,160,96,0.6)", marginBottom:8, letterSpacing:"0.08em" }}>
+                      🎨 INTELIGÊNCIA CRIATIVA — ADS & CONTEÚDO
+                    </div>
+                    <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                      {c.inteligencia_criativa.formato_principal && (
+                        <div style={{ fontSize:11.5, color:"#ccc8c0", lineHeight:1.6 }}>
+                          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"#5a5855" }}>Formato: </span>{c.inteligencia_criativa.formato_principal}
+                        </div>
+                      )}
+                      {c.inteligencia_criativa.hook_tipico && (
+                        <div style={{ fontSize:11.5, color:"#ccc8c0", lineHeight:1.6 }}>
+                          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"#5a5855" }}>Hook típico: </span>{c.inteligencia_criativa.hook_tipico}
+                        </div>
+                      )}
+                      {c.inteligencia_criativa.prova_social_usada && (
+                        <div style={{ fontSize:11.5, color:"#ccc8c0", lineHeight:1.6 }}>
+                          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"#5a5855" }}>Prova social: </span>{c.inteligencia_criativa.prova_social_usada}
+                        </div>
+                      )}
+                      {c.inteligencia_criativa.copy_beneficio && (
+                        <div style={{ fontSize:11.5, color:"#ccc8c0", lineHeight:1.6 }}>
+                          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"#5a5855" }}>Copy: </span>{c.inteligencia_criativa.copy_beneficio}
+                        </div>
+                      )}
+                      {c.inteligencia_criativa.uso_influencer && (
+                        <div style={{ fontSize:11.5, color:"#ccc8c0", lineHeight:1.6 }}>
+                          <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"#5a5855" }}>Influencer: </span>{c.inteligencia_criativa.uso_influencer}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sinais detectados */}
+                {c.sinais_detectados?.length > 0 && (
+                  <div style={{ padding:"10px 12px", background:"rgba(255,255,255,0.02)", borderRadius:6, border:"0.5px solid rgba(255,255,255,0.07)", marginTop:8 }}>
+                    <div style={{ fontFamily:"'DM Mono',monospace", fontSize:9.5, color:"#4a4845", marginBottom:7, letterSpacing:"0.08em" }}>
+                      🔭 SINAIS DETECTADOS
+                    </div>
+                    <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                      {c.sinais_detectados.map((s, j) => (
+                        <div key={j} style={{ fontSize:11.5, color:"#8a8680", lineHeight:1.6, display:"flex", gap:6 }}>
+                          <span style={{ color:"rgba(200,240,96,0.3)", flexShrink:0 }}>→</span>
+                          <span>{s}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Oportunidade */}
                 <div className="print-opp" style={{ padding:"10px 12px", background:"rgba(200,240,96,0.05)", borderRadius:6, borderLeft:"2px solid rgba(200,240,96,0.28)", marginTop:10 }}>
@@ -1971,7 +2206,7 @@ ${r.insight_prioritario}`;
 
           {/* ── FOOTER ───────────────────────────────────────────────────── */}
           <div className="print-footer" style={{ display:"none", marginTop:28, paddingTop:14, borderTop:"1px solid #ddd", fontSize:10, color:"#999", fontFamily:"monospace", justifyContent:"space-between" }}>
-            <span>Market Intelligence Platform v7.0</span>
+            <span>Market Intelligence Platform v8.0</span>
             <span>{client.name} · {client.niche}</span>
             <span>{activeUser?.name} · {new Date().toLocaleDateString("pt-BR")}</span>
           </div>
@@ -2122,6 +2357,22 @@ ${r.insight_prioritario}`;
             + Adicionar concorrente
           </button>
         )}
+        {/* Aviso: mínimo 3 concorrentes para análise comparativa real */}
+        {(() => {
+          const filledCount = comps.filter(c => c.name.trim()).length;
+          if (filledCount > 0 && filledCount < 3) return (
+            <div style={{ marginTop:12, padding:"11px 14px", background:"rgba(240,160,96,0.07)", border:"0.5px solid rgba(240,160,96,0.28)", borderRadius:8, display:"flex", gap:10, alignItems:"flex-start" }}>
+              <span style={{ fontSize:14, lineHeight:1.2, flexShrink:0 }}>⚠️</span>
+              <div>
+                <div style={{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#f0a060", letterSpacing:"0.08em", marginBottom:3 }}>ANÁLISE LIMITADA — RECOMENDAMOS 3+ CONCORRENTES</div>
+                <div style={{ fontSize:12, color:"#c0a888", lineHeight:1.65 }}>
+                  Com {filledCount} concorrente{filledCount === 1 ? "" : "s"}, o share of voice e a análise comparativa perdem valor informacional. Inteligência competitiva B2B cobre no mínimo 3 players para benchmarking real. Adicione {3 - filledCount} mais para análise completa.
+                </div>
+              </div>
+            </div>
+          );
+          return null;
+        })()}
         <div style={{ display:"flex", justifyContent:"space-between", marginTop:24 }}>
           <button style={S.ghost} onClick={() => setStep("setup")}>← Voltar</button>
           <button style={{ ...S.btn, opacity:comps[0].name.trim() ? 1 : 0.5 }}
@@ -2258,7 +2509,7 @@ ${r.insight_prioritario}`;
           </div>
         </div>
         <div style={{ marginTop:20, textAlign:"center", fontFamily:"'DM Mono',monospace", fontSize:9, color:"#2a2825", letterSpacing:"0.14em" }}>
-          v7.0 · SAAS READY · SUPABASE AUTH + RLS · SWOT ANTI-ALUCINAÇÃO · VALIDAÇÃO DE SETOR
+          v8.0 · SAAS READY · SUPABASE AUTH + RLS · SWOT ANTI-ALUCINAÇÃO · VALIDAÇÃO DE SETOR
         </div>
       </div>
     </div>
