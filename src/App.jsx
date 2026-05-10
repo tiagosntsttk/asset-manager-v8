@@ -2219,6 +2219,7 @@ ${r.insight_prioritario}`;
                 </>
               );
             })()}
+          </div>{/* /print-card TOP 5 AÇÕES */}
 
           {/* ── 11. INSIGHT PRIORITÁRIO ───────────────────────────────────── */}
           {results.insight_prioritario && (
