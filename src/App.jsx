@@ -1890,7 +1890,7 @@ ${r.insight_prioritario}`;
                     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
                       {c.metricas_estimadas.seguidores_instagram && (
                         <div style={{ fontSize:11, color:"#8ab8c8", lineHeight:1.5 }}>
-                          <span style={{ color:"#5a5855", fontFamily:"'DM Mono',monospace", fontSize:9" }}>Instagram: </span>
+                          <span style={{ color:"#5a5855", fontFamily:"'DM Mono',monospace", fontSize:9 }}>Instagram: </span>
                           {c.metricas_estimadas.seguidores_instagram}
                           <span style={{ fontSize:9, color:"#3a3835", marginLeft:4 }}>(perfil público)</span>
                         </div>
